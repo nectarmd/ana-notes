@@ -28,6 +28,8 @@ import {
   SquarePlus,
   Crown,
   UserCog,
+  FolderOpen,
+  AlertTriangle,
 } from 'lucide-react'
 import { deleteMyAccount } from '../lib/account'
 import { useAuth } from '../auth/AuthProvider'
@@ -38,7 +40,7 @@ import { Logo } from '../components/Logo'
 import { db } from '../lib/api'
 import { exportNotesMarkdown } from '../lib/share'
 import { langLabel, LANGS } from '../lib/lang'
-import { useI18n } from '../lib/i18n'
+import { useI18n, useT } from '../lib/i18n'
 import { RETENTION_CHOICES, RETENTION_DEFAULT, type RetentionDays } from '../lib/types'
 import { friendsEnabled, unreadCount } from '../lib/friends'
 import { acceptTeamInvite, declineOrLeaveTeam, listPendingForMe, teamsEnabled } from '../lib/teams'
@@ -48,6 +50,7 @@ import { logSilentError } from '../lib/auditLog'
 import { APP_NAME, APP_VERSION, LATEST_WINDOWS_BUILD } from '../lib/version'
 import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
 import { ANDROID_APK_DOWNLOAD_URL } from '../lib/androidApp'
+import { isElectron, type AnaPaths } from '../lib/electron'
 
 /**
  * Diagnostico visivel do PWA instalado: mostra os valores REAIS que o navegador reporta para
@@ -103,6 +106,132 @@ function Row({
       <span className="flex-1 font-medium">{label}</span>
       {right ?? <ChevronRight size={18} className="text-content-muted" />}
     </button>
+  )
+}
+
+/** Rotulo + caminho no disco + botao que abre a pasta no Explorer. */
+function PathBlock({
+  label,
+  value,
+  hint,
+  openLabel,
+  onOpen,
+}: {
+  label: string
+  value: string
+  hint?: string
+  openLabel: string
+  onOpen: () => void
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-content-secondary">{label}</p>
+        <p className="mt-0.5 font-mono text-xs text-content-primary break-all">{value}</p>
+        {hint && <p className="mt-1 text-xs text-content-muted">{hint}</p>}
+      </div>
+      <button onClick={onOpen} className="btn-ghost h-8 px-2.5 text-xs shrink-0">
+        <FolderOpen size={14} /> {openLabel}
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Onde o app Windows esta DE VERDADE no disco. Nasceu de um caso real (09/2026): a usuaria
+ * tinha 3-4 copias do ANA instaladas e usava uma ANTIGA sem saber -- e nada na tela denunciava
+ * isso, porque o numero de versao que aparece e o do SITE, e o app nativo e so um wrapper que
+ * carrega o site ao vivo (ou seja: identico em todas as copias). Estes caminhos sao a UNICA
+ * coisa que diferencia uma copia da outra. O caminho das gravacoes responde a outra pergunta
+ * que so dava pra responder por telefone: "onde, no meu PC, esta o audio que nao subiu?".
+ * So aparece dentro do app Windows -- no navegador e no PWA a ponte nem existe.
+ */
+function WindowsAppInfo() {
+  const t = useT()
+  const [paths, setPaths] = useState<AnaPaths | null>(null)
+
+  useEffect(() => {
+    const bridge = window.anaElectron
+    if (!isElectron() || !bridge || typeof bridge.getPaths !== 'function') return
+    let alive = true
+    bridge
+      .getPaths()
+      .then((p) => {
+        if (alive) setPaths(p)
+      })
+      .catch(() => {
+        /* instalador antigo ou IPC indisponivel: a secao simplesmente nao aparece */
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  if (!paths) return null
+
+  const open = (target: string) => window.anaElectron?.openPath?.(target)
+
+  return (
+    <>
+      <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('winapp.title')}</p>
+      <div className="card p-4 mb-8 space-y-4">
+        {paths.isStaleCopy && paths.registeredInstallDir && (
+          <div className="alert-error">
+            <p className="flex items-center gap-2 font-medium">
+              <AlertTriangle size={16} className="shrink-0" /> {t('winapp.staleTitle')}
+            </p>
+            <p className="mt-1">{t('winapp.staleBody')}</p>
+            <p className="mt-1 font-mono text-xs break-all">{paths.registeredInstallDir}</p>
+          </div>
+        )}
+        {paths.otherCopies.length > 0 && (
+          <div className="alert-error">
+            <p className="flex items-center gap-2 font-medium">
+              <AlertTriangle size={16} className="shrink-0" /> {t('winapp.duplicateTitle')}
+            </p>
+            <p className="mt-1">{t('winapp.duplicateBody')}</p>
+            {paths.otherCopies.map((dir) => (
+              <p key={dir} className="mt-1 font-mono text-xs break-all opacity-80">
+                {dir}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* As DUAS versoes, lado a lado e nomeadas: era exatamente a confusao do caso real --
+            o usuario via "v0.19.4" (site) e concluia que o aplicativo estava atualizado. */}
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-content-secondary">{t('winapp.installedVersion')}</span>
+          <span className="font-medium">v{paths.version}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-content-secondary">{t('winapp.siteVersion')}</span>
+          <span className="font-medium">{APP_VERSION}</span>
+        </div>
+
+        <PathBlock
+          label={t('winapp.folder')}
+          value={paths.installDir}
+          openLabel={t('winapp.open')}
+          onOpen={() => open(paths.installDir)}
+        />
+        <PathBlock
+          label={t('winapp.recordings')}
+          value={paths.recordingsBackupDir}
+          hint={t('winapp.recordingsHint')}
+          openLabel={t('winapp.open')}
+          onOpen={() => open(paths.recordingsBackupDir)}
+        />
+        {paths.logDir && (
+          <PathBlock
+            label={t('winapp.logs')}
+            value={paths.logFile}
+            openLabel={t('winapp.open')}
+            onOpen={() => open(paths.logDir)}
+          />
+        )}
+      </div>
+    </>
   )
 }
 
@@ -210,8 +339,14 @@ export function Settings() {
     <div className="px-5 safe-top">
       <header className="flex items-center justify-between mb-6">
         <h1 className="font-display text-3xl font-bold">{t('settings.title')}</h1>
+        {/* No app Windows a etiqueta mostra as DUAS versoes. Antes so aparecia a do site, que e
+            a mesma em qualquer copia instalada -- foi o que fez uma usuaria acreditar que
+            estava na versao nova enquanto usava um aplicativo de meses atras. */}
         <span className="text-xs font-medium text-content-muted bg-surface-elevated border border-surface-border rounded-full px-2.5 py-1 shrink-0">
           {APP_VERSION}
+          {isElectron() && window.anaElectron?.appVersion && (
+            <span className="opacity-60"> · app {window.anaElectron.appVersion}</span>
+          )}
         </span>
       </header>
 
@@ -489,6 +624,8 @@ export function Settings() {
           {deleting ? <Spinner /> : <UserX size={18} />} {t('settings.deleteAccount')}
         </button>
       </Sheet>
+
+      <WindowsAppInfo />
 
       <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('about.title')}</p>
       <div className="card divide-y divide-surface-border mb-8">

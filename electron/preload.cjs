@@ -32,6 +32,20 @@ contextBridge.exposeInMainWorld('anaElectron', {
   requestSystemAudioReattach() {
     ipcRenderer.send('ana:reattach-system-audio')
   },
+  /** Caminhos reais deste app no disco: de ONDE ele esta rodando, onde ficam as gravacoes
+   *  guardadas localmente antes de transcrever, a pasta de logs, e se sobraram copias antigas
+   *  instaladas. Usado pela tela de Configuracoes -- e o que permite o usuario CONFERIR que
+   *  esta na instalacao certa em vez de confiar so no numero de versao (que vem do site e por
+   *  isso e igual em todas as copias). */
+  getPaths() {
+    return ipcRenderer.invoke('ana:get-paths')
+  },
+  /** Abre uma das pastas devolvidas por getPaths() no Explorer. O processo principal so aceita
+   *  caminhos da propria lista que ele reportou -- o site nunca consegue abrir/executar um
+   *  caminho arbitrario no PC. */
+  openPath(target) {
+    ipcRenderer.send('ana:open-path', target)
+  },
   /** Chama `cb` a cada mudanca de status da checagem/download de atualizacao (checando,
    *  achou, sem novidade, baixando com %, pronto, erro) -- da o feedback visivel que o
    *  dialogo nativo sozinho nao cobre (ex.: nada aparece enquanto so esta checando). */

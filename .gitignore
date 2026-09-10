@@ -35,3 +35,8 @@ build/*
 # Certificado de assinatura de codigo Windows (NUNCA versionar)
 *.pfx
 *.p12
+
+# Tokens por projeto (conta certa sem trocar de login). Nunca versionar.
+.claude/settings.local.json
+.claude/CONTAS.txt
+.claude/settings.local.json.exemplo

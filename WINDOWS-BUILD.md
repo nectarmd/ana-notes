@@ -1,9 +1,15 @@
 # Gerar o app Windows (Electron)
 
-O app Windows (Electron) **carrega o site publicado** (https://tailor-executive-ai-notes.vercel.app),
-o mesmo padrao do APK Android. Assim, cada deploy web atualiza o app automaticamente -- voce so
-precisa gerar o instalador de novo se mudar algo NATIVO: o atalho global, a captura de audio do
-sistema, o icone ou o nome do app (arquivos em `electron/`).
+O app Windows (Electron) **carrega o site publicado** (https://ana.nectarmd.com.br), o mesmo
+padrao do APK Android. Assim, cada deploy web atualiza o app automaticamente -- voce so precisa
+gerar o instalador de novo se mudar algo NATIVO: o atalho global, a captura de audio do sistema,
+o icone ou o nome do app (arquivos em `electron/`).
+
+> **Cuidado com a versao que aparece na tela.** O numero grande em Configuracoes e o do SITE
+> (`src/lib/version.ts`), igual em TODAS as copias instaladas. A versao do aplicativo nativo e
+> outra coisa (`package.json`'s `version`) e aparece ao lado, como `· app 0.19.5`. Confundir as
+> duas foi o que fez uma usuaria passar semanas usando um aplicativo de meses atras achando que
+> estava atualizada -- ver "Onde o app e instalado" abaixo.
 
 ## 1. Gerar o instalador localmente
 
@@ -53,6 +59,54 @@ artefato do workflow (`ana-windows-setup`).
   o antigo dialogo bloqueante "nao e possivel fechar o ANA". Le `package.json`'s `build.publish`
   (provider github, mesmo repositorio das releases).
 
+## Onde o app e instalado (e por que NAO fica em Arquivos de Programas)
+
+O instalador e **per-user** (`nsis.perMachine: false` + `oneClick: true`), entao o app vai pra
+`%LOCALAPPDATA%\Programs\...` e nunca pra `C:\Program Files`. Isso e deliberado, nao um bug: e a
+mesma escolha do Chrome, Teams, Slack e VS Code. Instalar em Arquivos de Programas exigiria
+elevacao (UAC) **na instalacao e em toda atualizacao automatica**, e como o instalador nao e
+assinado ("Editor desconhecido"), quem clicasse "Nao" ficaria travado numa versao antiga --
+exatamente o problema que o resto deste documento tenta eliminar.
+
+O nome da pasta pode ser `tailor-executive-ai-notes` em vez de "ANA by Tailor": versoes antigas
+do electron-builder usavam o `name` do `package.json` (e nao o `productName`) pra nomear a pasta
+por-usuario, e o caminho fica **gravado no registro** (`HKCU\Software\<GUID do appId>`,
+`InstallLocation`), entao instalacoes seguintes continuam nele. Nao force a mudanca: mover a
+pasta nao traz beneficio real e arrisca a atualizacao. O caminho verdadeiro aparece dentro do
+app, em **Configuracoes → App do Windows**, junto com o da pasta das gravacoes.
+
+### Faxina de copias antigas (`build/installer.nsh`)
+
+Ate a v0.18.25 o instalador era "assisted", deixando o usuario escolher a pasta E o modo ("so pra
+mim" x "todos os usuarios"). Cada escolha diferente virava uma instalacao **paralela** que a
+seguinte nao enxergava -- houve caso real (09/2026) de 3-4 copias no mesmo PC, com a usuaria
+abrindo uma velha por um atalho fixado na barra de tarefas. Como cada copia tem seu proprio
+armazenamento local, apareciam gravacoes pendentes diferentes na mesma conta.
+
+O template do electron-builder so desinstala UMA copia (a registrada em `SHELL_CONTEXT`). A
+partir da v0.19.5 o `customInit` do `build/installer.nsh` cobre o resto:
+
+- varre `HKCU` **e** `HKLM` atras de qualquer entrada "ANA by Tailor" que nao seja a instalacao
+  atual e roda o desinstalador dela (limpando tambem a entrada em "Aplicativos instalados");
+- apaga pastas ORFAS conhecidas (instalacao interrompida no meio, que deixa poucos MB pra tras);
+- em `customInstall`, **reaponta** todo atalho `.lnk` do ANA (area de trabalho, menu iniciar e
+  barra de tarefas) pro `.exe` da instalacao atual -- reapontar, e nao apagar, preserva a fixacao
+  na barra de tarefas;
+- recria os atalhos principais se o desinstalador de uma copia antiga os tiver levado junto (ele
+  apaga por NOME, e os nomes sao iguais).
+
+**Regra que nao pode ser quebrada:** todo desinstalador antigo e chamado com `/KEEP_APP_DATA` e
+`--updated`. Sem esses dois, o `uninstaller.nsh` do electron-builder faz `RMDir /r` na pasta de
+dados do app -- que e onde moram o login e as gravacoes ainda nao transcritas.
+
+A limpeza do `HKLM` (Arquivos de Programas) so roda em instalacao **manual**: numa atualizacao
+silenciosa, um pedido de UAC surgindo do nada quebraria a atualizacao automatica.
+
+> Ao editar `build/installer.nsh`, lembre que ele e incluido ANTES do template do
+> electron-builder: fora de corpo de macro nao existe LogicLib (`${if}`) nem os `!define` dele
+> (`${APP_EXECUTABLE_FILENAME}`, `${SHORTCUT_NAME}`...). Por isso tudo la vive dentro de `!macro`
+> e usa NSIS puro.
+
 ## Publicar uma release (checklist -- os 3 primeiros SAO OBRIGATORIOS pro auto-update funcionar)
 
 Depois de `npm run dist:win`, a pasta `release/` tem os arquivos que precisam ir TODOS pra
@@ -95,6 +149,12 @@ Para trocar o icone do app, so trocar `assets/icon.png` e gerar de novo.
 - Instalador pesa ~120 MB: e o preco do Electron (embute Chromium + Node), bem maior que o APK
   Android (que reaproveita a WebView do sistema). Nao ha como reduzir isso sem trocar de
   tecnologia (ex.: Tauri, que usa o WebView2 do Windows em vez de empacotar o Chromium).
-- Como o app so carrega o site, ele nao funciona sem internet -- igual ao uso normal do ANA hoje.
+- Como o app so carrega o site, ele nao funciona sem internet. Desde a v0.19.5, quando o site nao
+  carrega o app mostra um aviso proprio e RETENTA sozinho a cada 6s, em vez da tela de erro crua
+  do Chromium (que nao dava nem como tentar de novo sem fechar o app).
+- Uma unica instancia por vez (`app.requestSingleInstanceLock()`, desde a v0.16.7): clicar no
+  atalho de novo so traz a janela existente pra frente. Copias anteriores a essa versao nao tem
+  a trava -- e por isso que o PC com varias copias abria varios ANAs ao mesmo tempo, cada um
+  brigando pelo mesmo armazenamento local. A faxina do instalador e o que resolve isso de fato.
 - `package.json`'s `"main"` aponta para `electron/main.cjs`; isso nao afeta `npm run dev`/`build`
   (Vite ignora esse campo).

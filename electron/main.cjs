@@ -8,10 +8,105 @@ const { app, BrowserWindow, Tray, Menu, globalShortcut, session, desktopCapturer
 const { autoUpdater } = require('electron-updater')
 const log = require('electron-log/main')
 const path = require('node:path')
+const fs = require('node:fs')
+const { execFile, spawn } = require('node:child_process')
 
 const APP_URL = 'https://ana.nectarmd.com.br'
 const RECORD_HOTKEY = 'CommandOrControl+Shift+G'
 const ICON_PATH = path.join(__dirname, '..', 'build', 'icon.ico')
+const EXE_NAME = 'ANA by Tailor.exe'
+
+/**
+ * Chave que o instalador NSIS grava com o caminho da instalacao OFICIAL deste PC. O nome da
+ * chave e um GUID derivado do `appId` (br.com.tailorexec.tena.desktop) pelo electron-builder --
+ * como o appId nunca muda, o GUID tambem nao. Serve pra responder uma pergunta que o app nao
+ * sabia responder: "o .exe que estou rodando e o mesmo que esta instalado?". Foi exatamente
+ * isso que pegou uma usuaria em 09/2026 -- ela tinha 3-4 copias do ANA no PC e usava uma
+ * ANTIGA, mas a tela mostrava a versao do SITE (v0.19.4, que e igual em todas as copias, ja
+ * que o app e um wrapper que carrega o site ao vivo), entao nada denunciava o problema.
+ */
+const INSTALL_REGISTRY_KEY = 'HKCU\\Software\\c348911e-1f8f-5b7a-87c2-5332a1be9b1b'
+
+/**
+ * Todos os lugares onde uma copia do ANA ja foi parar em algum momento da historia do
+ * instalador. Ate a v0.18.25 o instalador era "assisted" (`nsis.oneClick: false` +
+ * `allowToChangeInstallationDirectory`), o que deixava o usuario escolher a pasta E o modo
+ * ("so pra mim" x "todos os usuarios") -- cada escolha diferente virava uma instalacao
+ * paralela que a seguinte nao enxergava. Esta lista e o que o app varre pra AVISAR que ha
+ * copias sobrando (o instalador novo, em build/installer.nsh, e quem de fato as remove).
+ */
+function knownInstallDirs() {
+  const local = process.env.LOCALAPPDATA || ''
+  const pf = process.env.ProgramFiles || ''
+  const pf86 = process.env['ProgramFiles(x86)'] || ''
+  const dirs = []
+  if (local) {
+    // "tailor-executive-ai-notes" e o `name` do package.json: versoes antigas do
+    // electron-builder usavam ele (e nao o productName) pra nomear a pasta por-usuario --
+    // por isso o app "some" de Arquivos de Programas E fica com um nome irreconhecivel.
+    dirs.push(path.join(local, 'Programs', 'tailor-executive-ai-notes'))
+    dirs.push(path.join(local, 'Programs', 'ANA by Tailor'))
+    dirs.push(path.join(local, 'Programs', 'ana-by-tailor'))
+    dirs.push(path.join(local, 'ANA by Tailor'))
+  }
+  if (pf) dirs.push(path.join(pf, 'ANA by Tailor'))
+  if (pf86) dirs.push(path.join(pf86, 'ANA by Tailor'))
+  return dirs
+}
+
+/** Compara caminhos do Windows sem tropecar em maiuscula/minuscula ou barra sobrando. */
+function samePath(a, b) {
+  if (!a || !b) return false
+  const norm = (v) => path.resolve(v).replace(/[\\/]+$/, '').toLowerCase()
+  try {
+    return norm(a) === norm(b)
+  } catch {
+    return false
+  }
+}
+
+/** Le um valor de string do registro do Windows. Devolve null se a chave/valor nao existir. */
+function readRegValue(key, name) {
+  return new Promise((resolve) => {
+    execFile('reg.exe', ['query', key, '/v', name], { windowsHide: true }, (err, stdout) => {
+      if (err) return resolve(null)
+      const m = String(stdout).match(new RegExp(`${name}\\s+REG_[A-Z_]+\\s+(.+)`))
+      resolve(m ? m[1].trim() : null)
+    })
+  })
+}
+
+/** Pastas (fora a que estamos rodando) que ainda tem um "ANA by Tailor.exe" dentro. */
+function findOtherCopies() {
+  const here = path.dirname(process.execPath)
+  return knownInstallDirs().filter((dir) => {
+    if (samePath(dir, here)) return false
+    try {
+      return fs.existsSync(path.join(dir, EXE_NAME))
+    } catch {
+      return false
+    }
+  })
+}
+
+/**
+ * Onde ficam, NO DISCO, as gravacoes que o app guarda como rede de seguranca antes de
+ * transcrever (src/lib/audioStore.ts -> IndexedDB "tailor-audio"). Fica dentro da particao
+ * nomeada `persist:ana`; instaladores anteriores a v0.17.0 usavam a sessao padrao, e ate a
+ * v0.18.30 o app carregava outro dominio -- cada combinacao dessas e um armazenamento
+ * SEPARADO, e e por isso que copias diferentes mostravam "gravacoes retomadas" diferentes
+ * na MESMA conta. Mostrar o caminho em Configuracoes deixa isso verificavel pelo usuario.
+ */
+function recordingsBackupDir() {
+  const userData = app.getPath('userData')
+  const partition = path.join(userData, 'Partitions', 'ana', 'IndexedDB')
+  try {
+    if (fs.existsSync(partition)) return partition
+  } catch {
+    /* segue pro fallback */
+  }
+  return userData
+}
 
 // Grava em arquivo (userData/logs/main.log) -- sem isto, um "buscar atualizacoes" que nao
 // mostra nada nunca deixa rastro nenhum pra investigar. Se acontecer de novo, pedir esse
@@ -86,7 +181,34 @@ if (!gotSingleInstanceLock) {
       },
     })
 
-    mainWindow.loadURL(APP_URL)
+    mainWindow.loadURL(APP_URL).catch((err) => log.warn('loadURL inicial falhou:', err))
+
+    // Wrapper FINO: se o site nao carrega (PC sem internet, DNS, host fora do ar), o Chromium
+    // mostra a propria tela de erro crua -- sem marca, sem explicacao e sem como tentar de novo
+    // a nao ser fechar o app. Trocamos por um aviso nosso, que ainda RETENTA sozinho ate voltar.
+    let retryTimer = null
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
+      if (!isMainFrame) return
+      // ERR_ABORTED: navegacao trocada de proposito (o proprio app mandou ir pra outra tela).
+      if (errorCode === -3) return
+      log.warn(`did-fail-load (${errorCode}): ${errorDescription}`)
+      showOfflineNotice(errorDescription)
+      if (retryTimer) clearTimeout(retryTimer)
+      retryTimer = setTimeout(() => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(APP_URL).catch(() => {})
+      }, 6000)
+    })
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      // So para de retentar quando quem carregou foi o SITE: o proprio aviso de offline tambem
+      // dispara este evento e, sem a checagem, cancelaria a retentativa que ele acabou de armar.
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      if (!mainWindow.webContents.getURL().startsWith(APP_URL)) return
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+    })
 
     // Ctrl+Shift+G com a janela em foco: se o atalho GLOBAL nao registrou (outro app do Windows
     // ja usa esse atalho -- por isso so acontece em ALGUMAS maquinas), a tecla chegava ao Chromium,
@@ -120,6 +242,24 @@ if (!gotSingleInstanceLock) {
     mainWindow.on('closed', () => {
       mainWindow = null
     })
+  }
+
+  /** Tela propria de "nao consegui carregar", no lugar da tela de erro crua do Chromium. */
+  function showOfflineNotice(detail) {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    const html = [
+      '<!doctype html><meta charset="utf-8"><title>ANA</title>',
+      '<style>',
+      'body{margin:0;height:100vh;display:grid;place-items:center;background:#0b0f14;color:#e6edf3;',
+      'font:15px/1.6 "Segoe UI",system-ui,sans-serif;text-align:center;padding:24px}',
+      'h1{font-size:20px;margin:0 0 12px}p{margin:0 0 8px;color:#9aa7b2;max-width:34em}',
+      'code{color:#6f7d8a;font-size:12px}',
+      '</style>',
+      '<div><h1>Nao consegui abrir o ANA</h1>',
+      '<p>O aplicativo precisa de internet para carregar. Vou tentar de novo sozinho a cada 6 segundos.</p>',
+      '<p><code>' + String(detail || '').replace(/[<>&]/g, '') + '</code></p></div>',
+    ].join('')
+    mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)).catch(() => {})
   }
 
   /**
@@ -166,6 +306,10 @@ if (!gotSingleInstanceLock) {
         { label: 'Gravar reunião (Ctrl+Shift+G)', click: triggerRecordHotkey },
         { type: 'separator' },
         { label: 'Buscar atualizações...', click: () => checkForUpdates(true) },
+        // Atalhos pras pastas tambem AQUI, e nao so em Configuracoes: quando o site nao
+        // carrega, a bandeja e o unico lugar que o usuario ainda alcanca.
+        { label: 'Abrir a pasta do app...', click: () => shell.openPath(path.dirname(process.execPath)) },
+        { label: 'Abrir a pasta das gravacoes salvas...', click: () => shell.openPath(recordingsBackupDir()) },
         { label: 'Abrir pasta de logs...', click: () => shell.showItemInFolder(log.transports.file.getFile().path) },
         { type: 'separator' },
         {
@@ -315,6 +459,71 @@ if (!gotSingleInstanceLock) {
     e.returnValue = app.getVersion()
   })
 
+  /**
+   * Caminhos REAIS deste app no disco, pra tela de Configuracoes do site. Existe por causa de
+   * um caso concreto (09/2026): a usuaria tinha varias copias do ANA no PC, usava uma antiga, e
+   * NADA na tela denunciava isso -- porque a versao mostrada vem do site, que e o mesmo em todas
+   * as copias. Com estes valores a tela passa a mostrar de onde o app esta rodando de verdade,
+   * onde ficam as gravacoes guardadas localmente, e se ha copias sobrando pra remover.
+   */
+  ipcMain.handle('ana:get-paths', async () => {
+    const exePath = process.execPath
+    const installDir = path.dirname(exePath)
+    const registeredInstallDir = await readRegValue(INSTALL_REGISTRY_KEY, 'InstallLocation')
+    let logFile = ''
+    let logDir = ''
+    try {
+      logFile = log.transports.file.getFile().path
+      // O site mostra o ARQUIVO mas so pode mandar abrir a PASTA: abrir pasta abre o Explorer,
+      // abrir arquivo executaria algo. Ver a lista de caminhos permitidos em allowedOpenPaths().
+      logDir = path.dirname(logFile)
+    } catch {
+      /* sem log em arquivo: o resto da tela continua util */
+    }
+    return {
+      version: app.getVersion(),
+      appUrl: APP_URL,
+      exePath,
+      installDir,
+      registeredInstallDir: registeredInstallDir || null,
+      isStaleCopy: !!registeredInstallDir && !samePath(installDir, registeredInstallDir),
+      userDataDir: app.getPath('userData'),
+      recordingsBackupDir: recordingsBackupDir(),
+      logFile,
+      logDir,
+      otherCopies: findOtherCopies(),
+    }
+  })
+
+  /**
+   * Lista fechada de pastas que o site pode pedir pra abrir no Explorer. O site e carregado de
+   * um servidor remoto: sem esta trava, um `ana:open-path` com um caminho qualquer viraria
+   * "executar arquivo arbitrario no PC do usuario" (shell.openPath roda .exe). Todos os itens
+   * aqui sao PASTAS -- abrir pasta so abre o Explorer, nunca executa nada.
+   */
+  async function allowedOpenPaths() {
+    const list = [app.getPath('userData'), recordingsBackupDir(), path.dirname(process.execPath)]
+    for (const dir of findOtherCopies()) list.push(dir)
+    try {
+      list.push(path.dirname(log.transports.file.getFile().path))
+    } catch {
+      /* ignora */
+    }
+    const registered = await readRegValue(INSTALL_REGISTRY_KEY, 'InstallLocation')
+    if (registered) list.push(registered)
+    return list
+  }
+
+  ipcMain.on('ana:open-path', async (_e, target) => {
+    if (typeof target !== 'string' || !target) return
+    const list = await allowedOpenPaths()
+    if (!list.some((allowed) => samePath(allowed, target))) {
+      log.warn('ana:open-path recusado (caminho fora da lista permitida):', target)
+      return
+    }
+    shell.openPath(target).catch((err) => log.warn('nao foi possivel abrir a pasta:', err))
+  })
+
   autoUpdater.on('update-available', (info) => {
     // Com autoDownload=true o electron-updater ja comeca a baixar sozinho -- nao chamamos
     // downloadUpdate() de novo (duplicaria). Sem dialogo bloqueante: so avisa o site (aviso discreto).
@@ -347,7 +556,69 @@ if (!gotSingleInstanceLock) {
     sendUpdateStatus({ status: 'downloaded', version: info.version })
   })
 
-  app.whenReady().then(() => {
+  /**
+   * Impede o cenario que originou esta correcao: o usuario clica num atalho ANTIGO (area de
+   * trabalho, barra de tarefas, menu iniciar) que aponta pra uma copia do ANA que nao e mais a
+   * instalada. Como o app carrega o site ao vivo, a copia velha ABRE e parece normal -- mas usa
+   * um armazenamento local separado (login e gravacoes pendentes diferentes) e um Chromium
+   * antigo, o que quebrava a gravacao. Aqui a gente compara o .exe que esta rodando com o
+   * caminho que o instalador registrou e, se forem diferentes, avisa e oferece abrir o certo.
+   * Devolve true se decidimos sair (quem chama nao deve seguir criando janela/bandeja).
+   */
+  async function guardAgainstStaleCopy() {
+    const registered = await readRegValue(INSTALL_REGISTRY_KEY, 'InstallLocation')
+    if (!registered) return false
+    const here = path.dirname(process.execPath)
+    if (samePath(here, registered)) return false
+    const target = path.join(registered, EXE_NAME)
+    // Se o caminho registrado nao existe mais, o registro e que esta velho -- nao incomoda.
+    if (!fs.existsSync(target)) return false
+
+    log.warn(`copia fora do lugar: rodando de "${here}", instalado em "${registered}"`)
+    const { response } = await dialog.showMessageBox({
+      type: 'warning',
+      buttons: ['Abrir a versao instalada', 'Continuar nesta mesmo assim'],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'Esta nao e a versao instalada do ANA',
+      message: 'Voce abriu uma copia antiga do ANA.',
+      detail: [
+        'Copia aberta:',
+        here,
+        '',
+        'Versao instalada:',
+        registered,
+        '',
+        'Copias antigas guardam login e gravacoes em um lugar SEPARADO -- e por isso que ' +
+          'aparecem gravacoes diferentes em cada uma. Abra a versao instalada e apague o ' +
+          'atalho antigo.',
+      ].join('\n'),
+    })
+    if (response !== 0) return false
+
+    // Sair primeiro, abrir depois: enquanto ESTE processo vive, ele segura a trava de instancia
+    // unica -- a copia certa subiria e so mandaria foco pra esta janela aqui, sem resolver nada.
+    // A espera de ~2s da o intervalo pra este processo morrer antes da outra subir. Usamos `ping`
+    // e nao `timeout`: o `timeout` do Windows aborta ("input redirection is not supported")
+    // quando a entrada padrao esta redirecionada, que e exatamente o caso aqui (stdio: 'ignore').
+    try {
+      spawn('cmd.exe', ['/c', `ping -n 3 127.0.0.1 >nul & start "" "${target}"`], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: true,
+      }).unref()
+    } catch (err) {
+      log.error('nao foi possivel abrir a versao instalada:', err)
+      return false
+    }
+    app.isQuitting = true
+    app.quit()
+    return true
+  }
+
+  app.whenReady().then(async () => {
+    if (await guardAgainstStaleCopy()) return
+
     // Autoriza getDisplayMedia() (usado pelo "Gravar Meet" do site) SEM o dialogo de escolha
     // do sistema operacional: grava a tela toda + audio do sistema (loopback) direto. Resolve o
     // maior ponto de atrito da gravacao de reuniao (escolher a aba certa, lembrar de marcar
@@ -358,8 +629,21 @@ if (!gotSingleInstanceLock) {
       (_request, callback) => {
         desktopCapturer
           .getSources({ types: ['screen'] })
-          .then((sources) => callback({ video: sources[0], audio: 'loopback' }))
-          .catch(() => callback({}))
+          .then((sources) => {
+            // Sem esta checagem, uma lista VAZIA virava `video: undefined` e o getDisplayMedia
+            // estourava sem mensagem -- do lado do usuario a gravacao de reuniao simplesmente
+            // "nao acontecia", sem erro nenhum pra investigar. Acontece quando o Windows nega a
+            // captura de tela (politica/privacidade) ou nao ha sessao grafica disponivel.
+            if (!sources || sources.length === 0) {
+              log.error('desktopCapturer nao devolveu nenhuma tela -- captura do audio do sistema cancelada')
+              return callback({})
+            }
+            callback({ video: sources[0], audio: 'loopback' })
+          })
+          .catch((err) => {
+            log.error('desktopCapturer.getSources falhou:', err)
+            callback({})
+          })
       },
       { useSystemPicker: false },
     )
