@@ -91,9 +91,45 @@ function audioFilename(audio: Blob): string {
   return `audio.${ext}`
 }
 
+/**
+ * Arquivo grande (acima do limite do Whisper) e transcrito pelo AssemblyAI de forma ASSINCRONA:
+ * a primeira chamada devolve so um `jobId`, porque um audio de ~1 h nao termina dentro do tempo
+ * de uma unica requisicao. Aqui acompanhamos ate ficar pronto.
+ *
+ * O teto de 30 min existe so para a tela nunca ficar presa para sempre se o trabalho travar do
+ * lado do provedor -- ele processa bem mais rapido que o tempo real, entao mesmo um audio de 2 h
+ * termina com folga.
+ */
+async function acompanharTranscricao(
+  jobId: string,
+  onProgress?: (mensagem: string) => void,
+): Promise<{ transcript: string; language: string }> {
+  const LIMITE_MS = 30 * 60 * 1000
+  const INTERVALO_MS = 5000
+  const inicio = Date.now()
+  while (Date.now() - inicio < LIMITE_MS) {
+    await delay(INTERVALO_MS)
+    const { data, error } = await supabase!.functions.invoke(`transcribe?job=${encodeURIComponent(jobId)}`, {
+      method: 'GET',
+    })
+    if (error) throw await unwrapError(error)
+    const r = data as { transcript?: string; language?: string; status?: string }
+    if (typeof r?.transcript === 'string') return { transcript: r.transcript, language: r.language ?? 'pt-BR' }
+    const minutos = Math.round((Date.now() - inicio) / 60000)
+    onProgress?.(
+      minutos < 1
+        ? 'Áudio grande: a transcrição está em andamento...'
+        : `Áudio grande: transcrevendo há ${minutos} min...`,
+    )
+  }
+  throw new Error(
+    'A transcrição deste áudio está demorando mais que o esperado. O áudio continua salvo neste aparelho — tente novamente em alguns minutos.',
+  )
+}
+
 export async function transcribeAudio(
   audio: Blob,
-  opts: { diarize?: boolean } = {},
+  opts: { diarize?: boolean; onProgress?: (mensagem: string) => void } = {},
 ): Promise<{ transcript: string; language: string }> {
   if (config.mockMode) {
     await delay(opts.diarize ? 1800 : 1200)
@@ -107,7 +143,10 @@ export async function transcribeAudio(
   if (!supabase) throw new Error('Supabase nao configurado')
   const { data, error } = await supabase.functions.invoke('transcribe', { body: form })
   if (error) throw await unwrapError(error)
-  return data as { transcript: string; language: string }
+  const resposta = data as { transcript?: string; language?: string; jobId?: string }
+  // Arquivo pequeno: ja veio transcrito. Arquivo grande: veio um ID para acompanhar.
+  if (resposta?.jobId) return acompanharTranscricao(resposta.jobId, opts.onProgress)
+  return resposta as { transcript: string; language: string }
 }
 
 export interface AiMeta {

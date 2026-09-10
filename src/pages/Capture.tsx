@@ -83,6 +83,9 @@ export function Capture() {
   // (imagem/texto) nem chega a mostra-lo; um que travou da a saida pro usuario.
   const [showCancel, setShowCancel] = useState(false)
   const [step, setStep] = useState(0)
+  /** Aviso extra durante o processamento (ex.: audio grande transcrevendo ha X min). O subtitulo
+   *  padrao promete "alguns segundos" -- para um arquivo de 1 h isso parece travado. */
+  const [stepNote, setStepNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // A ultima tentativa parou no aviso de "gravacao silenciosa": habilita o botao de
   // transcrever mesmo assim (a decisao e do usuario, nunca do app).
@@ -443,7 +446,8 @@ export function Capture() {
             return
           }
           try {
-            const res = await transcribeAudio(opts.audioBlob, { diarize })
+            const res = await transcribeAudio(opts.audioBlob, { diarize, onProgress: setStepNote })
+            setStepNote(null)
             // `?? ''` defensivo: se o provedor devolver um corpo sem `transcript` (ja aconteceu
             // com a diarizacao devolvendo o formato errado), nunca deixar `transcript` undefined
             // -- senao o `.trim()` abaixo estoura ("Cannot read properties of undefined").
@@ -823,7 +827,7 @@ export function Capture() {
         </div>
         <h2 className="font-display text-xl font-bold">{STEPS[step]}...</h2>
         <p className="text-content-secondary mt-2 max-w-xs">
-          A IA esta processando sua nota. Isso leva apenas alguns segundos.
+          {stepNote ?? 'A IA esta processando sua nota. Isso leva apenas alguns segundos.'}
         </p>
         <div className="flex gap-1.5 mt-6">
           {STEPS.map((_, i) => (

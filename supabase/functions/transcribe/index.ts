@@ -16,6 +16,12 @@ const ASSEMBLYAI_API_KEY = Deno.env.get('ASSEMBLYAI_API_KEY')
 const MAX_FILE_MB = 60
 const MAX_AUDIO_SECONDS = 2 * 60 * 60 // 2 horas
 
+// Acima disto o Whisper (Groq/OpenAI) recusa com 413 "Request Entity Too Large": o limite por
+// arquivo e 25 MB nos dois. Nao adianta so avisar o usuario -- um .m4a de reuniao de ~50 min ja
+// nasce com 50 MB, e era exatamente esse o caso que voltava (2026-09-02 e 2026-09-10: o mesmo
+// erro, 7 tentativas seguidas). Arquivos assim vao para o AssemblyAI, que aceita ate 5 GB.
+const WHISPER_MAX_MB = 24
+
 // USD por SEGUNDO de audio (transcricao nao e cobrada por token).
 const PRICE_PER_SEC: Record<string, number> = {
   groq: 0.111 / 3600, // whisper-large-v3
@@ -81,9 +87,14 @@ async function whisper(file: File): Promise<{ text: string; seconds: number }> {
   return last!
 }
 
-async function assemblyDiarize(file: File): Promise<{ text: string; seconds: number } | null> {
+/**
+ * Manda o arquivo pro AssemblyAI e devolve o ID do trabalho, SEM esperar terminar.
+ * Separado do poll de proposito: um audio de ~1 h nao termina dentro do tempo de UMA requisicao
+ * de edge function, entao quem chama decide se espera (arquivo pequeno) ou se devolve o ID pro
+ * cliente acompanhar (arquivo grande).
+ */
+async function assemblyStart(file: File, diarize: boolean): Promise<string | null> {
   if (!ASSEMBLYAI_API_KEY) return null
-  // 1) upload
   const up = await fetch('https://api.assemblyai.com/v2/upload', {
     method: 'POST',
     headers: { authorization: ASSEMBLYAI_API_KEY },
@@ -92,32 +103,54 @@ async function assemblyDiarize(file: File): Promise<{ text: string; seconds: num
   if (!up.ok) return null
   const { upload_url } = await up.json()
 
-  // 2) solicita transcricao com identificacao de falantes
   const tr = await fetch('https://api.assemblyai.com/v2/transcript', {
     method: 'POST',
     headers: { authorization: ASSEMBLYAI_API_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({ audio_url: upload_url, speaker_labels: true, language_code: 'pt' }),
+    body: JSON.stringify({ audio_url: upload_url, speaker_labels: diarize, language_code: 'pt' }),
   })
   if (!tr.ok) return null
   const { id } = await tr.json()
+  return id ?? null
+}
 
-  // 3) poll (limite de ~140s; audios muito longos podem exceder)
+/** Le o estado de um trabalho do AssemblyAI (uma consulta, sem laco). */
+async function assemblyFetch(id: string): Promise<Record<string, unknown> | null> {
+  if (!ASSEMBLYAI_API_KEY) return null
+  const p = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
+    headers: { authorization: ASSEMBLYAI_API_KEY },
+  })
+  if (!p.ok) return null
+  return await p.json()
+}
+
+/**
+ * Texto final de um trabalho concluido.
+ * BUG corrigido no passado: antes devolvia a STRING crua, mas o chamador le `result.text` --
+ * vinha undefined e a nota saia com transcript undefined ("transcricao vazia" / crash no
+ * cliente). Sempre devolver o objeto.
+ */
+function assemblyResult(data: Record<string, unknown>): { text: string; seconds: number } {
+  const utterances = data.utterances as Array<{ speaker: string; text: string }> | undefined
+  const text =
+    Array.isArray(utterances) && utterances.length
+      ? utterances.map((u) => `Falante ${u.speaker}: ${u.text}`).join('\n')
+      : ((data.text as string) ?? '')
+  return { text, seconds: Math.round(Number(data.audio_duration) || 0) }
+}
+
+async function assemblyDiarize(file: File): Promise<{ text: string; seconds: number } | null> {
+  const id = await assemblyStart(file, true)
+  if (!id) return null
+
+  // poll (limite de ~140s; audios muito longos podem exceder -- por isso arquivo grande usa o
+  // caminho assincrono, que devolve o ID em vez de esperar aqui)
   const start = Date.now()
   while (Date.now() - start < 140000) {
     await new Promise((r) => setTimeout(r, 3000))
-    const p = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
-      headers: { authorization: ASSEMBLYAI_API_KEY },
-    })
-    const data = await p.json()
+    const data = await assemblyFetch(id)
+    if (!data) continue
     if (data.status === 'completed') {
-      // BUG corrigido: antes retornava a STRING crua aqui, mas a funcao e tipada como
-      // { text, seconds } e o chamador le result.text -> vinha undefined -> a nota saia com
-      // transcript undefined ("transcricao vazia" / crash no cliente). Sempre devolver o objeto.
-      const text =
-        Array.isArray(data.utterances) && data.utterances.length
-          ? data.utterances.map((u: { speaker: string; text: string }) => `Falante ${u.speaker}: ${u.text}`).join('\n')
-          : (data.text ?? '')
-      return { text, seconds: Math.round(Number(data.audio_duration) || 0) }
+      return assemblyResult(data)
     }
     if (data.status === 'error') return null
   }
@@ -131,6 +164,52 @@ Deno.serve(async (req) => {
     userId = await callerId(req)
     const guard = await checkBudget(userId)
     if (!guard.ok) return guardResponse(guard)
+
+    // Consulta de um trabalho JA em andamento (arquivo grande, no AssemblyAI). O cliente chama
+    // com ?job=<id> de tempos em tempos ate ficar pronto. E assim que um audio de ~1 h consegue
+    // terminar: nenhuma requisicao fica aberta esperando, entao o limite de tempo da edge
+    // function deixa de ser o teto da duracao do audio.
+    const jobId = new URL(req.url).searchParams.get('job')
+    if (jobId) {
+      const data = await assemblyFetch(jobId)
+      if (!data) {
+        return new Response(JSON.stringify({ error: 'Não foi possível consultar a transcrição.' }), {
+          status: 502,
+          headers: { ...cors, 'content-type': 'application/json' },
+        })
+      }
+      if (data.status === 'error') {
+        await logAuditServer({
+          severity: 'warning',
+          category: 'user',
+          source: 'edge:transcribe',
+          message: `AssemblyAI falhou: ${String(data.error ?? '').slice(0, 300)}`,
+          user_id: userId,
+        })
+        return new Response(
+          JSON.stringify({ error: 'Não conseguimos transcrever este áudio. Tente outro arquivo ou formato.' }),
+          { status: 422, headers: { ...cors, 'content-type': 'application/json' } },
+        )
+      }
+      if (data.status !== 'completed') {
+        return new Response(JSON.stringify({ status: 'processing' }), {
+          headers: { ...cors, 'content-type': 'application/json' },
+        })
+      }
+      const done = assemblyResult(data)
+      // Cobranca so aqui: e neste ponto que o audio foi realmente processado.
+      await logUsage({
+        user_id: userId,
+        provider: 'assemblyai',
+        model: 'best',
+        task: 'transcription',
+        audio_seconds: done.seconds,
+        cost_usd: done.seconds * (PRICE_PER_SEC.assemblyai ?? 0),
+      })
+      return new Response(JSON.stringify({ transcript: done.text, language: 'pt-BR' }), {
+        headers: { ...cors, 'content-type': 'application/json' },
+      })
+    }
 
     const inForm = await req.formData()
     const file = inForm.get('file') as File
@@ -150,6 +229,30 @@ Deno.serve(async (req) => {
       )
     }
     const diarize = inForm.get('diarize') === 'true'
+
+    // Arquivo acima do limite do Whisper: mandar pra la so devolveria 413. Vai pro AssemblyAI e
+    // devolve o ID pro cliente acompanhar, em vez de esperar aqui (audio longo nao termina
+    // dentro de uma requisicao). Este e o caso do .m4a de reuniao: ~50 MB para ~54 min.
+    if (file.size > WHISPER_MAX_MB * 1024 * 1024) {
+      const id = await assemblyStart(file, diarize)
+      if (id) {
+        return new Response(JSON.stringify({ jobId: id }), {
+          status: 202,
+          headers: { ...cors, 'content-type': 'application/json' },
+        })
+      }
+      // Sem ASSEMBLYAI_API_KEY (ou o upload falhou): segue pro Whisper mesmo assim. Ele deve
+      // recusar com 413, e o catch la embaixo traduz para a mensagem de "muito grande" --
+      // continua sendo um erro claro, nunca um erro cru.
+      await logAuditServer({
+        severity: 'warning',
+        category: 'system',
+        source: 'edge:transcribe',
+        message: 'Arquivo grande sem caminho AssemblyAI disponivel; tentando Whisper mesmo assim.',
+        detail: { bytes: file.size },
+        user_id: userId,
+      })
+    }
 
     let result: { text: string; seconds: number } | null = null
     let provider = PROVIDER
