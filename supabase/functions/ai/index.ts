@@ -947,6 +947,11 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
     } else if (task === 'help') {
       const question = String(body.question ?? '').slice(0, 500)
       const kb = String(body.kb ?? '').slice(0, 9000)
+      // Conversa encadeada: sem as ultimas falas, "e no celular?" virava uma pergunta solta.
+      const chat = ((body.history as { role: string; content: string }[]) ?? [])
+        .slice(-6)
+        .map((h) => `${h.role === 'user' ? 'Usuario' : 'ANA'}: ${String(h.content ?? '').slice(0, 600)}`)
+        .join('\n')
       const lang = String(body.lang ?? 'pt')
       const langName = lang === 'en' ? 'ingles' : lang === 'es' ? 'espanhol' : 'portugues do Brasil'
       const refusal =
@@ -959,7 +964,15 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
         HAIKU,
         `Voce e a ANA (ANA by Tailor), assistente de ajuda do aplicativo (notas, transcricoes e analise de reunioes). O aplicativo se chama ANA. Nunca use o nome "TENA". Responda SOMENTE sobre como usar o aplicativo e suas funcoes, com base na BASE DE AJUDA fornecida. Se a pergunta NAO for sobre o uso do aplicativo, responda apenas: "${refusal}". Nao invente funcoes inexistentes. Responda em ${langName}, de forma curta e direta.` +
           GUARD,
-        [{ type: 'text', text: `BASE DE AJUDA:\n<<<INICIO_DADOS>>>\n${kb}\n<<<FIM_DADOS>>>\n\nPERGUNTA DO USUARIO: ${question}` }],
+        [
+          {
+            type: 'text',
+            text:
+              `BASE DE AJUDA:\n<<<INICIO_DADOS>>>\n${kb}\n<<<FIM_DADOS>>>\n\n` +
+              (chat ? `CONVERSA ATE AQUI:\n${chat}\n\n` : '') +
+              `PERGUNTA DO USUARIO: ${question}`,
+          },
+        ],
         600,
       )
       out = { answer: text.trim() }

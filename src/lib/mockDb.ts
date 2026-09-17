@@ -348,6 +348,10 @@ export const mockDb: Db = {
     }
   },
 
+  async listRecentNotes(userId, limit = 5) {
+    return (await this.listNotes(userId)).slice(0, limit)
+  },
+
   async getNote(id) {
     cleanupExpiredAudio()
     const notes = read<Note[]>(K.notes, [])

@@ -6,8 +6,7 @@ import {
   Link2,
   Mic,
   NotebookPen,
-  MessageSquare,
-  ChevronRight,
+  MessageSquare,
   SlidersHorizontal,
   Check,
   Smartphone,
@@ -19,6 +18,7 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Lightbulb,
+  Sparkles,
   X,
 } from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
@@ -45,6 +45,7 @@ import { useT } from '../lib/i18n'
 import { useToast } from '../components/Toast'
 import { SwipeRow } from '../components/SwipeRow'
 import { audioDaysLeft, EXPIRY_WARN_DAYS, retentionOf } from '../lib/retention'
+import { toPreviewText } from '../lib/textPreview'
 
 /** Icone de origem: diferencia como a nota foi criada. */
 function sourceIcon(n: Note): React.ReactNode {
@@ -386,118 +387,117 @@ export function Home() {
         </div>
       </header>
 
-      {/* Tela larga (xl+, app Windows em tela cheia): duas colunas -- as notas ocupam toda a
-          largura que sobra e a lateral fixa (sticky) guarda conversa, dica e agenda. Abaixo de xl
-          e uma coluna so, na mesma ordem de antes. A <aside> vem primeiro no DOM para manter essa
-          ordem no celular; no xl o `order` a joga para a direita. */}
-      <div className="xl:flex xl:items-start xl:gap-6">
-      <aside className="xl:order-2 xl:w-[22rem] xl:shrink-0 xl:sticky xl:top-6">
-      {/* So no desktop: no mobile (PWA/APK inclusive), aviso+dica aqui em cima empurravam
-          "conversar com todas as reuniões" pra baixo e atrapalhavam o layout -- versao mobile
-          fica reposicionada depois daquele botao (abaixo). */}
-      <div className="hidden md:block">
-        <HomeTip />
-      </div>
-
-      <button
-        onClick={() => setAskOpen(true)}
-        className="card-featured w-full flex items-center gap-3 bg-surface-card border rounded-2xl px-4 py-2.5 mb-3 text-left transition-colors"
-      >
-        <span className="grid place-items-center h-9 w-9 rounded-xl bg-brand-solid text-white shrink-0">
-          <MessageSquare size={18} />
-        </span>
-        <span className="flex-1 min-w-0">
-          <span className="block font-medium text-sm">{t('home.chatAll')}</span>
-          <span className="block text-xs text-content-muted">{t('home.chatAllSub')}</span>
-        </span>
-        <ChevronRight size={18} className="text-content-muted shrink-0" />
-      </button>
-
-      {/* Versao mobile do aviso+dica (ver comentario acima). */}
+      {/* Aviso do admin: no celular vem logo abaixo do titulo (no desktop ele ja aparece no topo
+          da janela, pelo AppShell). */}
       <div className="md:hidden">
         <AnnouncementBanner />
-        <HomeTip />
       </div>
 
-      <UpcomingEvents />
-      </aside>
-
-      <section className="xl:order-1 flex-1 min-w-0">
-      {/* Busca + filtro de ordenacao (icone a direita, dentro do proprio card) */}
-      <div className="relative mb-3" ref={sortRef}>
-        <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" />
-        <input
-          className="input pl-11 pr-12"
-          placeholder={t('home.search')}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+      {/* Acoes rapidas em cima, na largura toda. Ate 17/09/2026 elas viviam numa coluna estreita a
+          direita e pareciam "jogadas no canto": conversa apertada e agenda espremida. Agora a
+          conversa ocupa um terco e a agenda os dois tercos, e as notas ficam com a largura inteira. */}
+      <div className="grid gap-3 mb-3 lg:grid-cols-3 lg:items-stretch">
         <button
-          onClick={() => setSortOpen((v) => !v)}
-          aria-label={t('home.sortBy')}
-          aria-expanded={sortOpen}
-          title={t('home.sortBy')}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center h-9 w-9 rounded-lg transition-colors ${
-            sortOpen || sort !== 'recent'
-              ? 'text-accent bg-accent/10'
-              : 'text-content-muted hover:text-content-primary'
-          }`}
+          onClick={() => setAskOpen(true)}
+          className="card-featured h-full flex flex-col gap-3 bg-surface-card border rounded-2xl p-4 text-left transition-colors"
         >
-          <SlidersHorizontal size={18} />
+          <span className="flex items-center gap-3">
+            <span className="grid place-items-center h-11 w-11 rounded-2xl bg-brand-solid text-white shrink-0">
+              <MessageSquare size={22} />
+            </span>
+            <span className="min-w-0">
+              <span className="block font-display font-semibold leading-tight">{t('home.chatAll')}</span>
+              <span className="block text-xs text-content-muted leading-tight mt-0.5">{t('home.chatAllSub')}</span>
+            </span>
+          </span>
+          <span className="block text-xs text-content-muted leading-relaxed">{t('home.chatAllHint')}</span>
+          <span className="btn-primary w-full mt-auto justify-center text-sm py-2">
+            <Sparkles size={16} /> {t('home.chatAllCta')}
+          </span>
         </button>
 
-        {sortOpen && (
-          <div className="absolute right-0 top-full mt-2 z-30 w-64 card p-1.5 shadow-float">
-            <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
-              {t('home.sortBy')}
-            </p>
-            {SORT_OPTIONS.map((o) => (
-              <button
-                key={o.key}
-                onClick={() => {
-                  setSort(o.key)
-                  setSortOpen(false)
-                }}
-                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-sm text-left transition-colors ${
-                  sort === o.key ? 'text-accent bg-accent/10' : 'text-content-secondary hover:bg-surface-elevated'
-                }`}
-              >
-                {t(o.labelKey)}
-                {sort === o.key && <Check size={16} className="shrink-0" />}
-              </button>
+        <div className="lg:col-span-2 min-w-0">
+          <UpcomingEvents />
+        </div>
+      </div>
+
+      <HomeTip />
+
+      {/* Busca + ordenacao + pastas na MESMA faixa: a busca sozinha ocupava a largura inteira da
+          tela e ficava enorme no app Windows. */}
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
+        <div className="relative w-full sm:w-80 lg:w-96 shrink-0" ref={sortRef}>
+          <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" />
+          <input
+            className="input pl-11 pr-12"
+            placeholder={t('home.search')}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button
+            onClick={() => setSortOpen((v) => !v)}
+            aria-label={t('home.sortBy')}
+            aria-expanded={sortOpen}
+            title={t('home.sortBy')}
+            className={`absolute right-2 top-1/2 -translate-y-1/2 grid place-items-center h-9 w-9 rounded-lg transition-colors ${
+              sortOpen || sort !== 'recent'
+                ? 'text-accent bg-accent/10'
+                : 'text-content-muted hover:text-content-primary'
+            }`}
+          >
+            <SlidersHorizontal size={18} />
+          </button>
+
+          {sortOpen && (
+            <div className="absolute right-0 top-full mt-2 z-30 w-64 card p-1.5 shadow-float">
+              <p className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-content-muted">
+                {t('home.sortBy')}
+              </p>
+              {SORT_OPTIONS.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => {
+                    setSort(o.key)
+                    setSortOpen(false)
+                  }}
+                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-sm text-left transition-colors ${
+                    sort === o.key ? 'text-accent bg-accent/10' : 'text-content-secondary hover:bg-surface-elevated'
+                  }`}
+                >
+                  {t(o.labelKey)}
+                  {sort === o.key && <Check size={16} className="shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {folderList.length > 0 && (
+          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 min-w-0 flex-1">
+            <Chip active={folderFilter === 'all'} onClick={() => setFolderFilter('all')}>
+              {t('home.all')}
+            </Chip>
+            {folderList.map((f) => (
+              <Chip key={f.id} active={folderFilter === f.id} onClick={() => setFolderFilter(f.id)}>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: f.color }} />
+                  {f.name}
+                </span>
+              </Chip>
             ))}
           </div>
         )}
-      </div>
 
-      {folderList.length > 0 && (
-        <div className="flex gap-2 overflow-x-auto pb-2 mb-2 -mx-1 px-1">
-          <Chip active={folderFilter === 'all'} onClick={() => setFolderFilter('all')}>
-            {t('home.all')}
-          </Chip>
-          {folderList.map((f) => (
-            <Chip key={f.id} active={folderFilter === f.id} onClick={() => setFolderFilter(f.id)}>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: f.color }} />
-                {f.name}
-              </span>
-            </Chip>
-          ))}
-        </div>
-      )}
-
-      {notes && filtered.length > 0 && (
-        <div className="flex items-center justify-between mb-2 px-1">
-          {/* A ordenacao vive no icone de filtro dentro da busca. */}
-          <span className="text-xs text-content-muted">
+        {notes && filtered.length > 0 && (
+          <span className="text-xs text-content-muted whitespace-nowrap ml-auto">
             {filtered.length} {filtered.length === 1 ? t('home.noteOne') : t('home.noteMany')}
           </span>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="pb-2">
       {notes === null ? (
-        <ul className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(16.5rem,1fr))] gap-3 mt-2">
+        <ul className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-3 mt-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <li key={i}>
               <NoteCardSkeleton />
@@ -535,7 +535,7 @@ export function Home() {
           />
         )
       ) : (
-        <ul className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(16.5rem,1fr))] gap-3 mt-2">
+        <ul className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(18rem,1fr))] gap-3 mt-2">
           {filtered.map((n) => {
             const fc = folderColor(n.folder_id)
             const daysLeft = audioDaysLeft(n, retention)
@@ -543,12 +543,13 @@ export function Home() {
             // A RLS so deixa o DONO excluir. Sem isto, uma nota compartilhada comigo sumiria
             // da tela e o banco nao mudaria nada.
             const mine = n.user_id === profile?.id
+            const preview = toPreviewText(n.summary || '').slice(0, 160)
             // Faixa colorida a esquerda (so no mobile): cor da pasta, ou o vermelho da marca.
             const card = (
               <button
                 onClick={() => navigate(`/nota/${n.id}`)}
                 style={fc ? ({ '--stripe': fc } as React.CSSProperties) : undefined}
-                className="note-card card w-full h-full text-left px-4 py-3.5 hover:shadow-hover transition-all"
+                className="note-card card w-full h-full text-left px-4 py-3.5 flex flex-col hover:shadow-hover transition-all"
               >
                 {/* Topo: data + prioridade + icone de origem (na cor da pasta, se houver) */}
                 <div className="flex items-center justify-between gap-2 mb-2">
@@ -573,8 +574,15 @@ export function Home() {
                     </span>
                   )}
                 </div>
-                {/* Abaixo do titulo: horario (+ duracao/pasta) */}
-                <p className="text-sm text-content-muted mt-1">
+                {/* Previa do resumo: sem ela os cartoes ficavam quase vazios e a grade parecia
+                    desalinhada (pedido de 17/09/2026). */}
+                {preview && (
+                  <p className="text-sm text-content-secondary leading-snug mt-1.5 line-clamp-2 break-words">
+                    {preview}
+                  </p>
+                )}
+                {/* Rodape colado embaixo: horario (+ duracao/pasta) */}
+                <p className="text-sm text-content-muted mt-auto pt-2">
                   {fmtTime(n.created_at)}
                   {n.duration_seconds ? ` • ${fmtDuration(n.duration_seconds)}` : ''}
                   {folderName(n.folder_id) ? ` • ${folderName(n.folder_id)}` : ''}
@@ -610,8 +618,6 @@ export function Home() {
           })}
         </ul>
       )}
-      </div>
-      </section>
       </div>
 
       {/* FAB da ANA (MOBILE): no desktop a ANA fica no shell, global e com balao. */}

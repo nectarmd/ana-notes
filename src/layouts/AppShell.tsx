@@ -1,6 +1,23 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Settings as SettingsIcon, Sparkles, Mic, ListChecks, CalendarDays, LogOut, PanelLeft, PanelLeftClose, Users, Share2, Plug, BarChart3 } from 'lucide-react'
+import {
+  Home,
+  Settings as SettingsIcon,
+  Sparkles,
+  Mic,
+  ListChecks,
+  CalendarDays,
+  LogOut,
+  PanelLeft,
+  PanelLeftClose,
+  Users,
+  Share2,
+  Plug,
+  BarChart3,
+  Video,
+  Link2,
+  FileText,
+} from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
 import { useAuth } from '../auth/AuthProvider'
 import { Logo } from '../components/Logo'
@@ -16,6 +33,9 @@ import { announcementActive } from '../lib/appSettings'
 import { Maintenance } from '../pages/Maintenance'
 import { HelpAssistant } from '../pages/HelpAssistant'
 import { useT } from '../lib/i18n'
+import { db } from '../lib/api'
+import { fmtRelative } from '../lib/format'
+import type { RecentNote } from '../lib/types'
 
 const HIDE_MOBILE_NAV_ON = ['/nota/', '/capturar']
 
@@ -74,6 +94,72 @@ function SidebarLink({ item, label, tag }: { item: Item; label: string; tag?: st
   )
 }
 
+/**
+ * Notas recentes no rodape do menu (17/09/2026): a metade de baixo da barra vivia vazia e voltar
+ * a uma nota exigia ir para a tela inicial e procurar. Consulta leve (5 linhas, sem transcricao),
+ * refeita ao trocar de tela -- no maximo uma vez a cada 30 s.
+ */
+function SidebarRecent() {
+  const { profile } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const t = useT()
+  const [notes, setNotes] = useState<RecentNote[] | null>(null)
+  const lastFetch = useRef(0)
+
+  useEffect(() => {
+    if (!profile) return
+    // Nao refaz a consulta a cada navegacao: no maximo uma a cada 30 s. A checagem da lista atual
+    // e necessaria porque, sem ela, a dupla execucao do modo de desenvolvimento gastava a unica
+    // busca permitida e a lista nascia vazia.
+    if (notes && Date.now() - lastFetch.current < 30_000) return
+    lastFetch.current = Date.now()
+    db.listRecentNotes(profile.id, 5)
+      .then(setNotes)
+      .catch(() => setNotes((prev) => prev ?? []))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, location.pathname])
+
+  if (!notes?.length) return null
+
+  return (
+    <div className="px-3 pb-2">
+      <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+        {t('sidebar.recent')}
+      </p>
+      <ul className="space-y-0.5">
+        {notes.slice(0, 5).map((n) => (
+          <li key={n.id}>
+            <button
+              onClick={() => navigate(`/nota/${n.id}`)}
+              title={n.title}
+              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-left text-content-secondary hover:bg-surface-elevated hover:text-content-primary transition-colors"
+            >
+              <span className="grid place-items-center h-7 w-7 rounded-lg bg-surface-elevated text-accent shrink-0">
+                {n.type === 'video' ? (
+                  <Video size={14} />
+                ) : n.type === 'link' ? (
+                  <Link2 size={14} />
+                ) : n.type === 'file' || n.type === 'image' ? (
+                  <FileText size={14} />
+                ) : (
+                  <Mic size={14} />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm truncate leading-tight">{n.title}</span>
+                <span className="block text-[11px] text-content-muted leading-tight">
+                  {n.status === 'processing' ? t('home.processing') : fmtRelative(n.created_at)}
+                </span>
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 /* ---------- Desktop sidebar (SaaS layout) ---------- */
 function Sidebar({ onCollapse }: { onCollapse: () => void }) {
   const { isAdmin, profile, signOut } = useAuth()
@@ -127,6 +213,8 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           ))}
         </div>
       </nav>
+
+      <SidebarRecent />
 
       {/* "Powered by" a esquerda, logo Tailor colada na direita, alinhadas pela base. */}
       <div className="px-4 pb-3 flex items-end justify-between gap-2">

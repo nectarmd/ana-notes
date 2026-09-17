@@ -10,6 +10,7 @@ import type {
   Folder,
   Note,
   Profile,
+  RecentNote,
   SupportTicket,
   UsageEvent,
   UsageEventType,
@@ -352,6 +353,18 @@ export const supabaseDb: Db = {
   async leaveSharedNote(id) {
     const { error } = await client().rpc('leave_shared_note', { p_note_id: id })
     if (error) throw error
+  },
+
+  async listRecentNotes(userId, limit = 5) {
+    const { data, error } = await client()
+      .from('notes')
+      .select('id, title, type, duration_seconds, status, created_at')
+      .is('deleted_at', null)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return (data ?? []) as RecentNote[]
   },
 
   async getNote(id) {

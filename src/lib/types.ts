@@ -250,6 +250,9 @@ export interface Note {
   updated_at: string
 }
 
+/** Linha leve da lista de recentes do menu lateral (sem transcricao). */
+export type RecentNote = Pick<Note, 'id' | 'title' | 'type' | 'duration_seconds' | 'status' | 'created_at'>
+
 export type UsageEventType =
   | 'recording'
   | 'transcription'

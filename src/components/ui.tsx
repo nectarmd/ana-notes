@@ -137,11 +137,16 @@ export function Sheet({
   onClose,
   title,
   children,
+  /** 'lg' abre mais larga no computador (conversa com a ANA). */
+  size = 'md',
+  headerRight,
 }: {
   open: boolean
   onClose: () => void
   title?: string
   children: ReactNode
+  size?: 'md' | 'lg'
+  headerRight?: ReactNode
 }) {
   // Com o teclado aberto o `fixed inset-0` continua do tamanho da janela e a folha
   // (ancorada embaixo) fica atras do teclado. Aqui ela passa a seguir o visual viewport.
@@ -183,12 +188,14 @@ export function Sheet({
     >
       <div className="absolute inset-0 bg-black/50 animate-fade-in" onClick={onClose} />
       <div
-        className={`relative w-full sm:max-w-md overflow-y-auto overscroll-contain bg-surface-card border border-surface-border rounded-t-3xl sm:rounded-3xl shadow-float animate-slide-up ${
+        className={`relative w-full ${size === 'lg' ? 'sm:max-w-2xl' : 'sm:max-w-md'} overflow-y-auto overscroll-contain bg-surface-card border border-surface-border rounded-t-3xl sm:rounded-3xl shadow-float animate-slide-up ${
           vp ? 'max-h-full' : 'max-h-[90dvh] safe-bottom'
         }`}
       >
-        <div className="flex items-center justify-between px-5 pt-5 pb-2">
-          <h2 className="font-display font-semibold text-lg">{title}</h2>
+        <div className="flex items-center justify-between gap-2 px-5 pt-5 pb-2">
+          <h2 className="font-display font-semibold text-lg min-w-0 truncate">{title}</h2>
+          <div className="flex items-center gap-1 shrink-0">
+          {headerRight}
           <button
             onClick={onClose}
             className="grid place-items-center h-9 w-9 rounded-full bg-surface-elevated text-content-secondary hover:text-content-primary"
@@ -196,6 +203,7 @@ export function Sheet({
           >
             <X size={18} />
           </button>
+          </div>
         </div>
         <div className="px-5 pb-6 pt-2">{children}</div>
       </div>

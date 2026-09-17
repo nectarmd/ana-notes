@@ -7,6 +7,7 @@ import type {
   Note,
   Profile,
   ProfilePatch,
+  RecentNote,
   SupportTicket,
   TicketTopic,
   UsageEvent,
@@ -61,6 +62,8 @@ export interface Db {
 
   // --- notes ---
   listNotes(userId: string): Promise<Note[]>
+  /** So o necessario para a lista de recentes (sem transcricao/resumo): roda em toda tela. */
+  listRecentNotes(userId: string, limit?: number): Promise<RecentNote[]>
   getNote(id: string): Promise<Note | null>
   createNote(input: Partial<Note> & { user_id: string; title: string }): Promise<Note>
   updateNote(id: string, patch: Partial<Note>): Promise<Note>

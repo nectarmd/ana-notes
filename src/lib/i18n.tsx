@@ -600,6 +600,14 @@ const pt: Dict = {
   'speakers.hintNever': 'Os nomes só aparecem quando a própria conversa mostra quem é quem: alguém se apresenta, ou é chamado pelo nome e responde. Você também pode dar nome à mão.',
   'speakers.hintNone': 'Ninguém foi chamado pelo nome com clareza nesta conversa, então nenhum nome foi adivinhado. Se souber quem é, dê o nome à mão.',
   'speakers.hintSome': 'Toque no selo verde para ver o trecho que prova cada nome. Sem prova clara, o falante continua sem nome.',
+  // Home reorganizada, recentes na barra lateral e chat da ANA (17/09/2026)
+  'home.chatAllCta': 'Perguntar à IA',
+  'sidebar.recent': 'Recentes',
+  'help.clear': 'Limpar conversa',
+  'help.suggestions': 'Perguntas rápidas',
+  'help.send': 'Enviar',
+  'help.footer': 'A ANA responde sobre o uso do app.',
+  'home.chatAllHint': 'Ex.: “o que ficou combinado com o cliente na última reunião?”',
 }
 
 const en: Dict = {
@@ -1195,6 +1203,14 @@ const en: Dict = {
   'speakers.hintNever': 'Names only show up when the conversation itself proves who is who: someone introduces themselves, or is called by name and replies. You can also add names by hand.',
   'speakers.hintNone': 'Nobody was clearly called by name in this conversation, so no name was guessed. If you know who it is, add the name by hand.',
   'speakers.hintSome': 'Tap the green badge to see the excerpt that proves each name. Without clear proof, the speaker stays unnamed.',
+  // Home reorganizada, recentes na barra lateral e chat da ANA (17/09/2026)
+  'home.chatAllCta': 'Ask the AI',
+  'sidebar.recent': 'Recent',
+  'help.clear': 'Clear conversation',
+  'help.suggestions': 'Quick questions',
+  'help.send': 'Send',
+  'help.footer': 'ANA answers questions about using the app.',
+  'home.chatAllHint': 'E.g. "what did we agree with the client in the last meeting?"',
 }
 
 const es: Dict = {
@@ -1790,6 +1806,14 @@ const es: Dict = {
   'speakers.hintNever': 'Los nombres solo aparecen cuando la propia conversación muestra quién es quién: alguien se presenta, o lo llaman por su nombre y responde. También puedes poner nombres a mano.',
   'speakers.hintNone': 'Nadie fue llamado por su nombre con claridad en esta conversación, así que no se adivinó ningún nombre. Si sabes quién es, ponlo a mano.',
   'speakers.hintSome': 'Toca el sello verde para ver el fragmento que prueba cada nombre. Sin prueba clara, el hablante sigue sin nombre.',
+  // Home reorganizada, recentes na barra lateral e chat da ANA (17/09/2026)
+  'home.chatAllCta': 'Preguntar a la IA',
+  'sidebar.recent': 'Recientes',
+  'help.clear': 'Limpiar conversación',
+  'help.suggestions': 'Preguntas rápidas',
+  'help.send': 'Enviar',
+  'help.footer': 'ANA responde sobre el uso de la app.',
+  'home.chatAllHint': 'Ej.: “¿qué se acordó con el cliente en la última reunión?”',
 }
 
 const DICTS: Record<AppLang, Dict> = { pt, en, es }

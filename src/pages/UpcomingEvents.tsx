@@ -188,7 +188,7 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
 
   /* ------------------------- Modo CARD (home) ------------------------------ */
   return (
-    <div className="card p-4 mb-4">
+    <div className="card p-4 mb-3 h-full flex flex-col">
       {!needsAuth && (
         <div className={`flex items-center justify-between ${minimized ? '' : 'mb-2'}`}>
           <h3 className="flex items-center gap-2 font-display font-semibold">
@@ -252,21 +252,32 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
           ) : events.length === 0 ? (
             <p className="text-sm text-content-muted mb-3">{t('events.none')}</p>
           ) : (
-            <ul className="space-y-2 mb-3">
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mb-3">
               {events.slice(0, 3).map((e) => (
-                <li key={e.id} className="flex items-center gap-3">
+                <li
+                  key={e.id}
+                  className="flex items-center gap-2.5 rounded-xl border border-surface-border bg-surface-elevated/50 px-3 py-2 min-w-0"
+                >
                   <div className="h-9 w-1 rounded-full bg-brand-solid shrink-0" />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-sm truncate">{e.title}</p>
-                    <p className="text-xs text-content-muted">{eventLine(e)}</p>
+                    <p className="text-xs text-content-muted truncate">{eventLine(e)}</p>
                   </div>
+                  <button
+                    onClick={() => recordFromEvent(e)}
+                    aria-label={t('events.record')}
+                    title={t('events.record')}
+                    className="hidden lg:grid place-items-center h-8 w-8 rounded-lg text-content-muted hover:text-accent hover:bg-surface-card shrink-0"
+                  >
+                    <Mic size={15} />
+                  </button>
                 </li>
               ))}
             </ul>
           )}
 
           {errorBlock && <div className="mb-3">{errorBlock}</div>}
-          <button className="btn-primary w-full" onClick={() => navigate('/agenda')}>
+          <button className="btn-primary w-full sm:w-auto sm:ml-auto mt-auto" onClick={() => navigate('/agenda')}>
             <CalendarDays size={18} /> {t('events.see')}
           </button>
         </>

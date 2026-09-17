@@ -299,9 +299,16 @@ export async function generateAnalysis(transcript: string, meta: AiMeta = {}): P
 
 /** Assistente de ajuda: responde SO sobre o uso do app. Em pt tenta a base local (gratis)
  *  antes da IA; em outros idiomas vai direto na IA (que responde no idioma do usuario). */
-export async function askHelp(question: string, lang: 'pt' | 'en' | 'es' = 'pt'): Promise<string> {
+export async function askHelp(
+  question: string,
+  lang: 'pt' | 'en' | 'es' = 'pt',
+  /** Ultimas mensagens da conversa, para a ANA entender perguntas encadeadas ("e no celular?"). */
+  history: { role: string; content: string }[] = [],
+): Promise<string> {
   const { searchHelp, HELP_KB_TEXT } = await import('./helpKb')
-  if (lang === 'pt') {
+  // A base local so responde direto quando a pergunta se explica sozinha: no meio de uma conversa
+  // ela ignoraria o contexto e responderia outra coisa.
+  if (lang === 'pt' && history.length === 0) {
     const local = searchHelp(question)
     if (local) return local.a // resposta gratuita da base
   }
@@ -314,7 +321,13 @@ export async function askHelp(question: string, lang: 'pt' | 'en' | 'es' = 'pt')
     }
     return msg[lang] ?? msg.pt
   }
-  const r = await invoke<{ answer: string }>('ai', { task: 'help', question, kb: HELP_KB_TEXT, lang })
+  const r = await invoke<{ answer: string }>('ai', {
+    task: 'help',
+    question,
+    kb: HELP_KB_TEXT,
+    lang,
+    history: history.slice(-6),
+  })
   return r.answer
 }
 
