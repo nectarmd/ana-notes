@@ -950,7 +950,7 @@ function AnalysisView({ analysis, t }: { analysis: NonNullable<Note['analysis']>
             role="tablist"
             aria-label={t('note.analysisTitle')}
             onKeyDown={onKey}
-            className="flex gap-1 overflow-x-auto sm:flex-wrap sm:overflow-visible border-b border-surface-border px-2 pt-2"
+            className="flex overflow-x-auto border-b border-surface-border px-1.5 pt-2"
           >
             {visible.map((tab) => {
               const selected = tab.key === current.key
@@ -967,15 +967,17 @@ function AnalysisView({ analysis, t }: { analysis: NonNullable<Note['analysis']>
                     // Celular: a fileira rola de lado; traz a aba tocada para a vista.
                     e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' })
                   }}
-                  className={`relative flex items-center gap-1.5 whitespace-nowrap rounded-t-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  className={`relative flex flex-auto shrink-0 items-center justify-center gap-1 xl:gap-1.5 whitespace-nowrap rounded-t-lg px-2 xl:px-2.5 py-2.5 text-xs xl:text-[13px] font-medium transition-colors ${
                     selected ? 'text-accent' : 'text-content-secondary hover:text-content-primary hover:bg-surface-elevated'
                   }`}
                 >
-                  {tab.icon}
+                  <span className="hidden min-[1360px]:inline-flex" aria-hidden>
+                    {tab.icon}
+                  </span>
                   {tab.label}
                   {tab.key !== 'tone' && (
                     <span
-                      className={`min-w-[18px] rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${
+                      className={`min-w-[16px] rounded-full px-1 xl:px-1.5 text-[10px] xl:text-[11px] font-semibold tabular-nums ${
                         selected ? 'bg-accent/15 text-accent' : 'bg-surface-elevated text-content-muted'
                       }`}
                     >
