@@ -608,6 +608,7 @@ const pt: Dict = {
   'help.send': 'Enviar',
   'help.footer': 'A ANA responde sobre o uso do app.',
   'home.chatAllHint': 'Ex.: “o que ficou combinado com o cliente na última reunião?”',
+  'events.moreN': 'mais {n} na agenda',
 }
 
 const en: Dict = {
@@ -1211,6 +1212,7 @@ const en: Dict = {
   'help.send': 'Send',
   'help.footer': 'ANA answers questions about using the app.',
   'home.chatAllHint': 'E.g. "what did we agree with the client in the last meeting?"',
+  'events.moreN': '{n} more in the calendar',
 }
 
 const es: Dict = {
@@ -1814,6 +1816,7 @@ const es: Dict = {
   'help.send': 'Enviar',
   'help.footer': 'ANA responde sobre el uso de la app.',
   'home.chatAllHint': 'Ej.: “¿qué se acordó con el cliente en la última reunión?”',
+  'events.moreN': '{n} más en la agenda',
 }
 
 const DICTS: Record<AppLang, Dict> = { pt, en, es }

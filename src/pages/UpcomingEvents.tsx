@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, RefreshCw, Clock, Link2Off, Mic, Minus, Plus } from 'lucide-react'
+import { CalendarDays, ChevronRight, RefreshCw, Clock, Link2Off, Mic, Minus, Plus } from 'lucide-react'
 import {
   startCalendarConnect,
   finishCalendarConnect,
@@ -33,7 +33,7 @@ function monthRange(offset: number, showPast: boolean) {
   return { from, to, month: start }
 }
 
-export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
+export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' | 'strip' }) {
   const isPage = mode === 'page'
   const [events, setEvents] = useState<CalEvent[]>([])
   // Otimista: comeca "conectado" mesmo sem token local -- o efeito abaixo sempre tenta renovar
@@ -141,6 +141,86 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
         {e.start ? fmtDate(e.start) : ''}
         {e.start && !e.allDay ? ` · ${fmtTime(e.start)}` : e.allDay ? ` · ${t('events.allDay')}` : ''}
       </>
+    )
+  }
+
+  /* ------------ Modo FAIXA (tela inicial): uma linha, sem cartao grande -------------
+   * Os dois cartoes do topo (conversa + agenda) ocupavam muito espaco e pareciam mal encaixados
+   * (retorno do usuario em 17/09/2026). Aqui so o proximo compromisso, com gravar e ir para a
+   * agenda ao lado; a lista completa vive em /agenda. */
+  if (mode === 'strip') {
+    const next = events[0]
+    // "Hoje · 15:45" no lugar da data inteira: e o PROXIMO compromisso, quase sempre hoje ou amanha.
+    const dayLabel = (iso: string) => {
+      const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T00:00:00`) : new Date(iso)
+      const same = (x: Date, y: Date) => x.toDateString() === y.toDateString()
+      const now = new Date()
+      if (same(d, now)) return t('events.today')
+      if (same(d, new Date(now.getTime() + 86400000))) return t('events.tomorrow')
+      return fmtDate(iso)
+    }
+    const rest = Math.max(0, events.length - 1)
+    return (
+      <div className="flex items-center gap-3 px-4 py-3 h-full min-w-0">
+        <span className="grid place-items-center h-9 w-9 rounded-xl bg-accent/10 text-accent shrink-0">
+          <CalendarDays size={18} />
+        </span>
+
+        {needsAuth ? (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-sm leading-tight">{t('events.title')}</span>
+              <span className="block text-xs text-content-muted leading-tight truncate">{t('events.connectSub')}</span>
+            </span>
+            <button onClick={connect} disabled={loading} className="btn-outline h-8 px-3 text-xs shrink-0">
+              {loading ? <Spinner size={14} /> : <CalendarDays size={15} />}
+              {t('events.connect')}
+            </button>
+          </>
+        ) : loading && !events.length ? (
+          <div className="flex-1 min-w-0">
+            <Skeleton className="h-3.5 w-1/2 mb-1.5" />
+            <Skeleton className="h-3 w-1/3" />
+          </div>
+        ) : !next ? (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-sm leading-tight">{t('events.title')}</span>
+              <span className="block text-xs text-content-muted leading-tight">{t('events.none')}</span>
+            </span>
+            <button onClick={() => navigate('/agenda')} className="btn-ghost h-8 px-3 text-xs shrink-0">
+              {t('events.see')}
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-sm leading-tight truncate">{next.title}</span>
+              <span className="block text-xs text-content-muted leading-tight truncate">
+                {dayLabel(next.start)}
+                {next.allDay ? ` · ${t('events.allDay')}` : ` · ${fmtTime(next.start)}`}
+                {rest > 0 ? ` · ${t('events.moreN').replace('{n}', String(rest))}` : ''}
+              </span>
+            </span>
+            <button
+              onClick={() => recordFromEvent(next)}
+              title={t('events.record')}
+              aria-label={t('events.record')}
+              className="grid place-items-center h-8 w-8 rounded-lg text-content-muted hover:text-accent hover:bg-surface-elevated shrink-0"
+            >
+              <Mic size={16} />
+            </button>
+            <button
+              onClick={() => navigate('/agenda')}
+              title={t('events.see')}
+              aria-label={t('events.see')}
+              className="grid place-items-center h-8 w-8 rounded-lg text-content-muted hover:text-content-primary hover:bg-surface-elevated shrink-0"
+            >
+              <ChevronRight size={18} />
+            </button>
+          </>
+        )}
+      </div>
     )
   }
 

@@ -18,7 +18,7 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Lightbulb,
-  Sparkles,
+  ChevronRight,
   X,
 } from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
@@ -393,31 +393,26 @@ export function Home() {
         <AnnouncementBanner />
       </div>
 
-      {/* Acoes rapidas em cima, na largura toda. Ate 17/09/2026 elas viviam numa coluna estreita a
-          direita e pareciam "jogadas no canto": conversa apertada e agenda espremida. Agora a
-          conversa ocupa um terco e a agenda os dois tercos, e as notas ficam com a largura inteira. */}
-      <div className="grid gap-3 mb-3 lg:grid-cols-3 lg:items-stretch">
+      {/* Uma faixa so, fina, no lugar dos dois cartoes grandes que ocupavam o topo (retorno do
+          usuario em 17/09/2026): a esquerda a conversa com todas as notas, a direita o proximo
+          compromisso com gravar e ir para a agenda. A agenda completa fica em /agenda. */}
+      <div className="card mb-3 flex flex-col sm:flex-row overflow-hidden">
         <button
           onClick={() => setAskOpen(true)}
-          className="card-featured h-full flex flex-col gap-3 bg-surface-card border rounded-2xl p-4 text-left transition-colors"
+          className="flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-elevated sm:flex-1 min-w-0"
         >
-          <span className="flex items-center gap-3">
-            <span className="grid place-items-center h-11 w-11 rounded-2xl bg-brand-solid text-white shrink-0">
-              <MessageSquare size={22} />
-            </span>
-            <span className="min-w-0">
-              <span className="block font-display font-semibold leading-tight">{t('home.chatAll')}</span>
-              <span className="block text-xs text-content-muted leading-tight mt-0.5">{t('home.chatAllSub')}</span>
-            </span>
+          <span className="grid place-items-center h-9 w-9 rounded-xl bg-brand-solid text-white shrink-0">
+            <MessageSquare size={18} />
           </span>
-          <span className="block text-xs text-content-muted leading-relaxed">{t('home.chatAllHint')}</span>
-          <span className="btn-primary w-full mt-auto justify-center text-sm py-2">
-            <Sparkles size={16} /> {t('home.chatAllCta')}
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-sm leading-tight">{t('home.chatAll')}</span>
+            <span className="block text-xs text-content-muted leading-tight truncate">{t('home.chatAllSub')}</span>
           </span>
+          <ChevronRight size={18} className="text-content-muted shrink-0" />
         </button>
 
-        <div className="lg:col-span-2 min-w-0">
-          <UpcomingEvents />
+        <div className="border-t sm:border-t-0 sm:border-l border-surface-border sm:flex-1 min-w-0">
+          <UpcomingEvents mode="strip" />
         </div>
       </div>
 
