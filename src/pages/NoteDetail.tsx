@@ -28,10 +28,10 @@ import { useAuth } from '../auth/AuthProvider'
 import { db, config } from '../lib/api'
 import {
   chatWithNote,
-  generateActionItems,
   generateAnalysis,
   generateDetailed,
   generateSummary,
+  generateSummaryAndItems,
   hasAnalysis,
 } from '../lib/ai'
 import { pauseSpeaking, resumeSpeaking, speak, stopSpeaking, ttsSupported } from '../lib/tts'
@@ -182,8 +182,16 @@ export function NoteDetail() {
     setBusy('summary')
     try {
       const meta = { template: note.template, context: note.context }
-      const summary = await generateSummary(note.transcript, meta)
-      const action_items = note.action_items.length ? note.action_items : await generateActionItems(note.transcript, meta)
+      // Sem itens ainda: resumo e itens numa chamada so. Com itens (a pessoa ja mexeu neles), so o resumo.
+      let summary: string
+      let action_items = note.action_items
+      if (note.action_items.length) {
+        summary = await generateSummary(note.transcript, meta)
+      } else {
+        const r = await generateSummaryAndItems(note.transcript, meta)
+        summary = r.summary
+        action_items = r.actionItems
+      }
       const updated = await db.updateNote(note.id, { summary, action_items, status: 'ready' })
       if (profile) await db.logUsage(profile.id, 'ai_summary', note.id)
       setNote(updated)

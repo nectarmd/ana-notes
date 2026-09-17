@@ -34,7 +34,8 @@ import { SystemAudioHelp } from '../components/SystemAudioHelp'
 import { useToast } from '../components/Toast'
 import { db, config } from '../lib/api'
 import { uid } from '../lib/db'
-import { generateActionItems, generateSummary, summarizeImage, transcribeAudio } from '../lib/ai'
+import { generateActionItems, generateSummary, generateSummaryAndItems, summarizeImage, transcribeAudio } from '../lib/ai'
+import { findRecentNoteWithTranscript } from '../lib/noteDedupe'
 import {
   saveAudio,
   savePendingRecording,
@@ -61,7 +62,7 @@ type Mode = 'record' | 'meeting' | 'upload' | 'video' | 'file' | 'link' | 'image
 // AssemblyAI, que aceita video; o limite antigo de 25 MB era do Whisper.
 const MAX_VIDEO_MB = 60
 
-const STEPS = ['Transcrevendo áudio', 'Gerando resumo', 'Extraindo itens de ação', 'Finalizando'] as const
+const STEPS = ['Transcrevendo áudio', 'Gerando resumo e itens de ação', 'Finalizando'] as const
 
 /** Intervalo dos checkpoints de gravacao em andamento (ver useEffect de checkpoint abaixo). */
 const CHECKPOINT_MS = 20_000
@@ -517,20 +518,29 @@ export function Capture() {
         // antiga (resumir, depois criar) qualquer falha da IA descartava a transcricao inteira:
         // em 26/08 um 401 da Anthropic jogou fora 83 min ja transcritos e pagos, e o usuario
         // teria de transcrever tudo de novo. Agora uma falha custa so a etapa de IA.
-        note = await db.createNote({
-          user_id: profile.id,
-          title: title.trim() || opts.fallbackTitle,
-          type: opts.type,
-          device: currentDevice(),
-          template,
-          context,
-          duration_seconds: opts.duration ?? 0,
-          language,
-          transcript,
-          summary: '',
-          action_items: [],
-          status: 'processing',
-        })
+        // A MESMA transcricao ja virou nota nas ultimas horas (retentativa, segunda aba, audio
+        // reenviado): abre essa nota em vez de criar uma copia. Em 16/09 uma gravacao virou 3 notas.
+        const existing = await findRecentNoteWithTranscript(transcript)
+        if (superseded()) return
+        if (existing) {
+          note = existing
+          toast('Esta gravação já tinha virado uma nota. Abrimos a mesma, sem duplicar.', 'info')
+        } else {
+          note = await db.createNote({
+            user_id: profile.id,
+            title: title.trim() || opts.fallbackTitle,
+            type: opts.type,
+            device: currentDevice(),
+            template,
+            context,
+            duration_seconds: opts.duration ?? 0,
+            language,
+            transcript,
+            summary: '',
+            action_items: [],
+            status: 'processing',
+          })
+        }
         createdNoteRef.current = note
         // Liga a gravacao salva neste aparelho a nota: se a IA falhar e o usuario retomar depois
         // (outra sessao, outro dia), reaproveita ESTA nota em vez de criar uma copia.
@@ -538,7 +548,7 @@ export function Capture() {
 
         // So contabiliza uso DEPOIS que a nota existe de verdade: uma tentativa que falhou
         // antes disso nao gerou nada e nao deveria custar orcamento na conta do usuario.
-        if (opts.audioBlob) {
+        if (opts.audioBlob && !existing) {
           await db.logUsage(profile.id, 'recording')
           await db.logUsage(profile.id, 'transcription')
         }
@@ -565,12 +575,19 @@ export function Capture() {
         const meta = { template, context }
 
         setStep(1)
-        const summary = opts.summary || (await generateSummary(note.transcript, meta))
+        let summary = opts.summary ?? ''
+        let actionItems: Note['action_items'] = []
+        if (!summary && !opts.skipActionItems) {
+          // Caso normal: resumo e itens numa chamada so.
+          const r = await generateSummaryAndItems(note.transcript, meta)
+          summary = r.summary
+          actionItems = r.actionItems
+        } else {
+          if (!summary) summary = await generateSummary(note.transcript, meta)
+          if (!opts.skipActionItems) actionItems = await generateActionItems(note.transcript, meta)
+        }
 
         setStep(2)
-        const actionItems = opts.skipActionItems ? [] : await generateActionItems(note.transcript, meta)
-
-        setStep(3)
         note = await db.updateNote(note.id, { summary, action_items: actionItems, status: 'ready' })
         createdNoteRef.current = note
         await db.logUsage(profile.id, 'ai_summary')

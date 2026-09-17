@@ -78,6 +78,11 @@ const CODES: Record<string, CodeInfo> = {
     owner: 'auto',
   },
   TRANSCRIBE_JOB_FAILED: { title: 'AssemblyAI não conseguiu transcrever', action: null, owner: 'user' },
+  TRANSCRIBE_DEDUPED: {
+    title: 'Mesmo áudio enviado de novo (reaproveitado)',
+    action: 'Nada a fazer: a transcrição já feita foi devolvida sem custo. Muitas ocorrências indicam alguém repetindo o envio.',
+    owner: 'auto',
+  },
   TRANSCRIBE_JOB_UNREACHABLE: { title: 'AssemblyAI não respondeu à consulta', action: null, owner: 'auto' },
   TRANSCRIBE_PROVIDER_ERROR: {
     title: 'Erro inesperado do provedor de transcrição',

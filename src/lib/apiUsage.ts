@@ -36,8 +36,8 @@ export const PROVIDER_COLOR: Record<string, { light: string; dark: string }> = {
 
 export const TASK_LABEL: Record<string, string> = {
   transcription: 'Transcrição',
-  summary: 'Resumo',
-  action_items: 'Itens de ação',
+  summary: 'Resumo e itens de ação',
+  action_items: 'Itens de ação (chamada separada)',
   detailed: 'Resumo detalhado',
   analysis: 'Análise da reunião',
   chat: 'Chat com a nota',

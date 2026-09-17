@@ -39,8 +39,9 @@ const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
 const CACHE_WRITE_MULT = 1.25
 const CACHE_READ_MULT = 0.1
 
-// Limite de entrada (controla custo e reduz superficie de injecao).
-const MAX_INPUT = 60000
+// Limite de entrada (controla custo e reduz superficie de injecao). Era 60 mil: reunioes de mais de
+// ~75 min tinham o FIM cortado antes da IA ler (2 notas em 30 dias ate 17/09/2026).
+const MAX_INPUT = 120000
 // Acima disso o transcript vira prefixo cacheavel.
 const CACHE_MIN_CHARS = 8000
 // A Anthropic aceita ate 5 MB por imagem; base64 ocupa ~4/3 dos bytes.
@@ -115,7 +116,9 @@ const summaryInstruction = (hint: string) =>
   'Ate 5 bullets "- " curtos so com o que ficou DECIDIDO (acordos, escolhas); tarefas vao em Próximos passos.' +
   ' Omita a secao se nada foi decidido.\n' +
   '## Próximos passos\n' +
-  'Ate 6 bullets "- Acao — responsavel — prazo" (responsavel e prazo so quando citados). Omita a secao se nao houver.\n' +
+  'Ate 6 bullets "- Acao — responsavel — prazo" (responsavel e prazo so quando citados), so com o que alguem se' +
+  ' comprometeu a fazer, pediu ou combinou na conversa: duvidas, suposicoes e temas nao viram passo (ex.: "nao sei quem' +
+  ' acessou a conta" e duvida, nao a tarefa "investigar o acesso"). Omita a secao inteira se nao houver.\n' +
   'Se o tema da nota pedir uma recomendacao, termine com "## Recomendação" em 1 ou 2 frases.' +
   ' Seja fiel aos dados, sem suposicoes, nao repita o mesmo ponto em duas secoes e nao deixe linhas em branco entre bullets.' +
   ` Este e o resumo RAPIDO, para ler em 1 minuto: o detalhamento fica para outro campo, gerado separadamente.${hint}`
@@ -124,14 +127,30 @@ const summaryInstruction = (hint: string) =>
 // done=false) e so custavam tokens de saida. "priority" alimenta a urgencia na tela de Tarefas.
 // Teto de 15 itens: numa reuniao de 1 h o modelo listava tudo, estourava os 1000 tokens, o JSON
 // chegava cortado e a nota ficava SEM nenhum item (achado no teste de 17/09/2026).
-const ACTION_ITEMS_INSTRUCTION =
-  'Extraia os action items dos dados: no maximo 15, os mais importantes. Responda APENAS com um array JSON de objetos' +
+const ACTION_ITEMS_SPEC =
+  'os action items dos dados, no maximo 15 (os mais importantes), num array JSON de objetos' +
   ' {"text":string,"owner":string|null,"due":string|null,"priority":"high"|"normal"|"low"}.' +
   ' "text" comeca com verbo, tem no maximo 20 palavras e se entende sozinho, fora da reuniao.' +
   ' "owner" e "due" so quando citados (senao null).' +
   ' "priority": "high" se foi tratado como urgente, bloqueante ou com prazo curto; "low" se opcional ou sem pressa;' +
-  ' senao "normal". Se nao houver, retorne [].'
+  ' senao "normal". So entra acao que alguem se comprometeu a fazer, pediu ou combinou na conversa: duvidas,' +
+  ' suposicoes e assuntos discutidos nao viram item, e "owner" so quando a pessoa foi nomeada como responsavel.' +
+  ' Sem action items, o array fica vazio: [].'
+const ACTION_ITEMS_INSTRUCTION = 'Extraia ' + ACTION_ITEMS_SPEC + ' Responda APENAS com o array JSON.'
 const ACTION_ITEMS_MAX_TOKENS = 2000
+
+// Resumo + itens de acao numa chamada SO (Fase 8, item 1 -- 17/09/2026). Eram duas chamadas que
+// liam a transcricao inteira duas vezes; a segunda so saia barata quando o texto passava do minimo
+// de cache do Haiku (4096 tokens), o que nao acontecia em 59% das notas. Versao entra na chave do
+// cache de resultado: mudar o prompt invalida o que foi guardado.
+const SUMMARY_ITEMS_VERSION = 'v3-2026-09-17'
+const SUMMARY_ITEMS_MAX_TOKENS = 3600
+const summaryItemsInstruction = (hint: string) =>
+  'Faca DUAS entregas sobre os dados, nesta ordem. Escreva cada uma entre as marcacoes indicadas e nada fora delas.\n\n' +
+  'ENTREGA 1 -- entre as linhas <resumo> e </resumo>:\n' +
+  summaryInstruction(hint) +
+  '\n\nENTREGA 2 -- entre as linhas <itens> e </itens>: liste ' +
+  ACTION_ITEMS_SPEC
 
 // Folga para reunioes longas: o formato pede ~500 palavras, mas cortar no meio perde "Próximos passos".
 const SUMMARY_MAX_TOKENS = 1600
@@ -344,6 +363,82 @@ function requireJsonObject<T>(text: string, what: string): T {
 const jsonResponse = (obj: unknown) =>
   new Response(JSON.stringify(obj), { headers: { ...cors, 'content-type': 'application/json' } })
 
+/** Separa as duas entregas da chamada unica. `items` null = a marcacao <itens> nem chegou. */
+function parseSummaryItems(text: string): { summary: string; items: unknown[] | null } {
+  const open = text.search(/<resumo>/i)
+  const close = text.search(/<\/resumo>/i)
+  const itemsAt = text.search(/<itens>/i)
+  let summary = ''
+  if (open >= 0) {
+    const end = close > open ? close : itemsAt > open ? itemsAt : text.length
+    summary = text.slice(open + '<resumo>'.length, end).trim()
+  }
+  return { summary, items: itemsAt >= 0 ? extractItemArray(text.slice(itemsAt)) : null }
+}
+
+async function summaryWithItems(
+  transcript: string,
+  hint: string,
+  meta: CallMeta,
+): Promise<{ summary: string; actionItems: Array<Record<string, unknown>> }> {
+  // Sem cache_control: e uma leitura unica do texto; gravar cache custaria 25% a mais a toa.
+  const data = { type: 'text', text: wrap(transcript) }
+  meta.task = 'summary'
+  const text = await anthropic(HAIKU, BASE_SYSTEM, [data, { type: 'text', text: summaryItemsInstruction(hint) }], SUMMARY_ITEMS_MAX_TOKENS, meta)
+  const parsed = parseSummaryItems(text)
+  if (!parsed.summary) {
+    throw new CodedError('AI_OUTPUT_INVALID', `resumo+itens sem <resumo> (${text.length} chars): ${text.slice(0, 300)}`)
+  }
+  let items = parsed.items
+  if (items === null) {
+    // Resposta cortada antes dos itens: busca so os itens, para a nota nao ficar sem nenhum.
+    meta.task = 'action_items'
+    items = extractItemArray(
+      await anthropic(HAIKU, BASE_SYSTEM, [data, { type: 'text', text: ACTION_ITEMS_INSTRUCTION }], ACTION_ITEMS_MAX_TOKENS, meta),
+    )
+  }
+  return { summary: parsed.summary, actionItems: normalizeActionItems(items) }
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Resultado ja gerado para o MESMO texto nas ultimas 24 h (mesma pessoa, mesmo prompt): devolve sem
+ * pagar de novo. Cobre retentativa depois de erro de rede e duas abas processando a mesma gravacao.
+ */
+async function cachedResult(userId: string, task: string, key: string): Promise<Record<string, unknown> | null> {
+  try {
+    const admin = adminClient()
+    if (!admin) return null
+    const { data } = await admin
+      .from('ai_result_cache')
+      .select('result')
+      .eq('user_id', userId)
+      .eq('task', task)
+      .eq('input_sha256', key)
+      .gte('created_at', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
+      .maybeSingle()
+    return (data?.result as Record<string, unknown>) ?? null
+  } catch {
+    return null
+  }
+}
+
+async function storeResult(userId: string, task: string, key: string, result: unknown): Promise<void> {
+  try {
+    const admin = adminClient()
+    if (!admin) return
+    await admin
+      .from('ai_result_cache')
+      .upsert({ user_id: userId, task, input_sha256: key, result, created_at: new Date().toISOString() })
+  } catch {
+    /* cache e opcional */
+  }
+}
+
 /**
  * Regenera resumo + itens de acao de uma nota que ficou sem (ex.: creditos da Anthropic acabaram
  * no meio do processamento, 16/09/2026). So por chamada de servico (CRON_SECRET) -- e acao do
@@ -352,9 +447,16 @@ const jsonResponse = (obj: unknown) =>
  *
  * `dry`: gera e DEVOLVE sem gravar nada na nota (nem log de auditoria) -- para o administrador
  * conferir um formato de prompt novo com uma reuniao real antes de ele chegar aos usuarios. Com
- * `withDetailed`, tambem gera o resumo detalhado.
+ * `withDetailed`, tambem gera o resumo detalhado. Com `compare`, gera tambem pelo fluxo antigo (duas
+ * chamadas separadas) para comparar qualidade lado a lado.
  */
-async function regenerateNote(noteId: string, force: boolean, dry = false, withDetailed = false): Promise<Response> {
+async function regenerateNote(
+  noteId: string,
+  force: boolean,
+  dry = false,
+  withDetailed = false,
+  compare = false,
+): Promise<Response> {
   const admin = adminClient()
   if (!admin) return errorResponse('BUDGET_UNAVAILABLE', { source: 'edge:ai.regenerate', technical: 'sem service role' })
 
@@ -375,23 +477,32 @@ async function regenerateNote(noteId: string, force: boolean, dry = false, withD
 
   const meta: CallMeta = { task: 'summary', userId: note.user_id }
   const hint = themeHint(note.template, note.context)
-  const dataBlock = wrap(note.transcript)
-  const block: Record<string, unknown> = { type: 'text', text: dataBlock }
-  if (dataBlock.length >= CACHE_MIN_CHARS) block.cache_control = { type: 'ephemeral' }
 
   try {
-    const summary = (await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: summaryInstruction(hint) }], SUMMARY_MAX_TOKENS, meta)).trim()
-    meta.task = 'action_items'
-    const itemsText = await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: ACTION_ITEMS_INSTRUCTION }], ACTION_ITEMS_MAX_TOKENS, meta)
-    const actionItems = normalizeActionItems(extractItemArray(itemsText))
+    const merged = await summaryWithItems(note.transcript, hint, meta)
+    const summary = merged.summary
+    const actionItems = merged.actionItems
 
     if (dry) {
       let detailed: string | null = null
       if (withDetailed) {
         meta.task = 'detailed'
-        detailed = (await anthropic(SONNET, BASE_SYSTEM, [block, { type: 'text', text: DETAILED_INSTRUCTION + hint }], DETAILED_MAX_TOKENS, meta)).trim()
+        detailed = (
+          await anthropic(SONNET, BASE_SYSTEM, [{ type: 'text', text: wrap(note.transcript) }, { type: 'text', text: DETAILED_INSTRUCTION + hint }], DETAILED_MAX_TOKENS, meta)
+        ).trim()
       }
-      return jsonResponse({ ok: true, dry: true, note_id: noteId, summary, action_items: actionItems, detailed })
+      let legacy: Record<string, unknown> | null = null
+      if (compare) {
+        const block: Record<string, unknown> = { type: 'text', text: wrap(note.transcript), cache_control: { type: 'ephemeral' } }
+        meta.task = 'summary'
+        const oldSummary = (await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: summaryInstruction(hint) }], SUMMARY_MAX_TOKENS, meta)).trim()
+        meta.task = 'action_items'
+        const oldItems = normalizeActionItems(
+          extractItemArray(await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: ACTION_ITEMS_INSTRUCTION }], ACTION_ITEMS_MAX_TOKENS, meta)),
+        )
+        legacy = { summary: oldSummary, action_items: oldItems }
+      }
+      return jsonResponse({ ok: true, dry: true, note_id: noteId, summary, action_items: actionItems, detailed, legacy })
     }
 
     const { error: upErr } = await admin
@@ -430,12 +541,37 @@ Deno.serve(async (req) => {
       if (!isServiceCall(req)) {
         return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai', technical: 'regenerate_note sem x-cron-secret valido' })
       }
-      return await regenerateNote(String(body.note_id ?? ''), body.force === true, body.dry === true, body.detailed === true)
+      return await regenerateNote(
+        String(body.note_id ?? ''),
+        body.force === true,
+        body.dry === true,
+        body.detailed === true,
+        body.compare === true,
+      )
     }
 
     userId = await callerId(req)
+
+    // Mesmo texto ja resumido nas ultimas 24 h: devolve o resultado guardado ANTES do freio (nao
+    // conta como nota nova nem gasta). Os itens ganham ids novos -- cada nota precisa dos seus.
+    let resultKey: string | null = null
+    if (task === 'summary_items' && userId && String(body.transcript ?? '').trim()) {
+      resultKey = await sha256Hex(
+        JSON.stringify([SUMMARY_ITEMS_VERSION, HAIKU, themeHint(body.template, body.context), String(body.transcript).slice(0, MAX_INPUT)]),
+      )
+      const hit = await cachedResult(userId, 'summary_items', resultKey)
+      if (hit && typeof hit.summary === 'string') {
+        const items = Array.isArray(hit.actionItems) ? hit.actionItems : []
+        return jsonResponse({
+          summary: hit.summary,
+          actionItems: items.map((it) => ({ ...(it as Record<string, unknown>), id: crypto.randomUUID(), done: false })),
+          cached: true,
+        })
+      }
+    }
+
     // Toda nota processada gera exatamente um resumo: e ele que conta para "notas por hora".
-    const guard = await checkBudget(userId, { kind: 'ai', countsAsNote: task === 'summary' })
+    const guard = await checkBudget(userId, { kind: 'ai', countsAsNote: task === 'summary' || task === 'summary_items' })
     if (!guard.ok) return guardResponse(guard, 'edge:ai', userId)
 
     // Disjuntor aberto (credito esgotado / chave recusada ha poucos minutos): responde na hora, sem
@@ -457,7 +593,7 @@ Deno.serve(async (req) => {
      * recebeu dados, e essa explicacao era salva como se fosse o resumo de verdade. Barra aqui,
      * ANTES de gastar uma chamada.
      */
-    const NEEDS_TRANSCRIPT = new Set(['summary', 'detailed', 'action_items', 'analysis', 'mindmap', 'feedback'])
+    const NEEDS_TRANSCRIPT = new Set(['summary', 'summary_items', 'detailed', 'action_items', 'analysis', 'mindmap', 'feedback'])
     if (NEEDS_TRANSCRIPT.has(task) && !transcript.trim()) {
       return errorResponse('AI_EMPTY_TRANSCRIPT', { source: 'edge:ai', userId, detail: { task } })
     }
@@ -471,22 +607,26 @@ Deno.serve(async (req) => {
      * quando for grande), a instrucao vem depois. Assim `summary` e `action_items` — que
      * rodam em sequencia sobre o mesmo texto e no mesmo modelo — reaproveitam o cache.
      */
-    const askOnTranscript = (model: string, instruction: string, maxTokens = 1500, text = transcript) => {
+    // `cache` so onde o MESMO texto e lido de novo em poucos minutos (chat e o fluxo antigo de
+    // resumo -> itens). Leitura unica (detalhado, analise, mapa, feedback) nao marca: gravar cache
+    // custa 25% a mais e quase nunca era reaproveitado (Fase 8, item 5 -- 17/09/2026).
+    const askOnTranscript = (model: string, instruction: string, maxTokens = 1500, text = transcript, cache = true) => {
       const dataBlock = wrap(text)
       const block: Record<string, unknown> = { type: 'text', text: dataBlock }
-      if (dataBlock.length >= CACHE_MIN_CHARS) block.cache_control = { type: 'ephemeral' }
+      if (cache && dataBlock.length >= CACHE_MIN_CHARS) block.cache_control = { type: 'ephemeral' }
       return anthropic(model, BASE_SYSTEM, [block, { type: 'text', text: instruction }], maxTokens, meta)
     }
 
-    if (task === 'summary') {
+    if (task === 'summary_items') {
+      const result = await summaryWithItems(transcript, hint, meta)
+      if (userId && resultKey) await storeResult(userId, 'summary_items', resultKey, result)
+      out = result
+    } else if (task === 'summary') {
+      // Fluxo antigo (duas chamadas): mantido para quem ainda esta com o app aberto na versao anterior.
       const text = await askOnTranscript(HAIKU, summaryInstruction(hint), SUMMARY_MAX_TOKENS)
       out = { summary: text.trim() }
     } else if (task === 'detailed') {
-      const text = await askOnTranscript(
-        SONNET,
-        DETAILED_INSTRUCTION + hint,
-        DETAILED_MAX_TOKENS,
-      )
+      const text = await askOnTranscript(SONNET, DETAILED_INSTRUCTION + hint, DETAILED_MAX_TOKENS, transcript, false)
       out = { detailed: text.trim() }
     } else if (task === 'action_items') {
       const text = await askOnTranscript(HAIKU, ACTION_ITEMS_INSTRUCTION, ACTION_ITEMS_MAX_TOKENS)
@@ -503,6 +643,8 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
         // Reunioes longas (40+ min) geram bastante material pros 9 campos do JSON; 3000 tokens
         // cortava a resposta no meio ANTES de fechar (achado via /admin/audit em 2026-07-15).
         5000,
+        transcript,
+        false,
       )
       out = { analysis: requireJsonObject(text, 'a analise') }
     } else if (task === 'mindmap') {
@@ -513,6 +655,8 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
           ' do ramo dentro dos filhos: "central" ate 4 palavras, "title" de cada branch ate 5 palavras, cada item' +
           ` de "children" uma frase curta (ate 10 palavras) com uma unica ideia.${hint}`,
         1500,
+        transcript,
+        false,
       )
       out = { mindmap: requireJsonObject(text, 'o mapa mental') }
     } else if (task === 'feedback') {
@@ -537,6 +681,8 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
         SONNET,
         `Voce e um executivo escrevendo um feedback profissional, cordial e objetivo para ${alvo}, ${tomInstr}. Baseie-se apenas nos dados da reuniao; nao invente fatos. Escreva uma mensagem pronta para enviar (saudacao, pontos principais, proximos passos, encerramento).`,
         1500,
+        transcript,
+        false,
       )
       out = { feedback: text.trim() }
     } else if (task === 'chat') {

@@ -11,11 +11,13 @@
 // @ts-nocheck  (ambiente Deno)
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
 import {
+  adminClient,
   callerId,
   checkBudget,
   cors,
   errorResponse,
   guardResponse,
+  logAuditServer,
   logUsage,
   reportIssue,
 } from '../_shared/guard.ts'
@@ -192,6 +194,54 @@ function assemblyResult(data: Record<string, unknown>): { text: string; seconds:
   return { text, seconds: Math.round(Number(data.audio_duration) || 0) }
 }
 
+// ------------------------------------------------------------------------------ mesmo audio duas vezes
+//
+// Fase 8, item 4 (17/09/2026): em 16/09 a mesma gravacao de 11 min foi transcrita 3 vezes em 40 s
+// (log do proprio Groq). A chave e o SHA-256 do arquivo ORIGINAL (o app manda; sem ele, calculamos
+// aqui), por usuario, separando com e sem diarizacao. Guardado por 7 dias (limpeza em 0041).
+const HEX64 = /^[0-9a-f]{64}$/
+const JOB_REUSE_MS = 3 * 60 * 60 * 1000
+
+async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+interface CacheRow {
+  transcript: string | null
+  job_id: string | null
+  provider: string | null
+  created_at: string
+}
+
+async function cacheGet(userId: string, key: string): Promise<CacheRow | null> {
+  try {
+    const admin = adminClient()
+    if (!admin) return null
+    const { data } = await admin
+      .from('transcription_cache')
+      .select('transcript, job_id, provider, created_at')
+      .eq('user_id', userId)
+      .eq('file_sha256', key)
+      .gte('created_at', new Date(Date.now() - 7 * 24 * 3600 * 1000).toISOString())
+      .maybeSingle()
+    return (data as CacheRow) ?? null
+  } catch {
+    return null
+  }
+}
+
+async function cachePut(userId: string, key: string, row: Record<string, unknown>): Promise<void> {
+  try {
+    const admin = adminClient()
+    if (!admin) return
+    const now = new Date().toISOString()
+    await admin.from('transcription_cache').upsert({ user_id: userId, file_sha256: key, created_at: now, updated_at: now, ...row })
+  } catch {
+    /* cache e opcional: nunca derruba a transcricao */
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors })
   let userId: string | null = null
@@ -209,6 +259,12 @@ Deno.serve(async (req) => {
         return errorResponse('TRANSCRIBE_JOB_UNREACHABLE', { source: 'edge:transcribe', userId, detail: { jobId } })
       }
       if (data.status === 'error') {
+        // Trabalho que falhou nao pode ser reaproveitado: a proxima tentativa comeca do zero.
+        try {
+          await adminClient()?.from('transcription_cache').delete().eq('user_id', userId).eq('job_id', jobId)
+        } catch {
+          /* ignora */
+        }
         return errorResponse('TRANSCRIBE_JOB_FAILED', {
           source: 'edge:transcribe',
           userId,
@@ -220,15 +276,29 @@ Deno.serve(async (req) => {
 
       const done = assemblyResult(data)
       const diarized = data.speaker_labels === true
-      // Cobranca so aqui: e neste ponto que o audio foi realmente processado.
-      await logUsage({
-        user_id: userId,
-        provider: 'assemblyai',
-        model: diarized ? 'best+speaker_labels' : 'best',
-        task: 'transcription',
-        audio_seconds: done.seconds,
-        cost_usd: done.seconds * (PRICE_PER_SEC.assemblyai + (diarized ? PRICE_PER_SEC.assemblyai_diarize : 0)),
-      })
+      // Cobranca so aqui: e neste ponto que o audio foi realmente processado. Se o mesmo trabalho ja
+      // foi entregue antes (duas tentativas acompanhando o mesmo job), nao conta de novo.
+      const admin = adminClient()
+      const { data: prior } = admin
+        ? await admin.from('transcription_cache').select('file_sha256, transcript').eq('user_id', userId).eq('job_id', jobId).maybeSingle()
+        : { data: null }
+      if (!prior?.transcript) {
+        await logUsage({
+          user_id: userId,
+          provider: 'assemblyai',
+          model: diarized ? 'best+speaker_labels' : 'best',
+          task: 'transcription',
+          audio_seconds: done.seconds,
+          cost_usd: done.seconds * (PRICE_PER_SEC.assemblyai + (diarized ? PRICE_PER_SEC.assemblyai_diarize : 0)),
+        })
+      }
+      if (prior?.file_sha256 && admin) {
+        await admin
+          .from('transcription_cache')
+          .update({ transcript: done.text, provider: 'assemblyai', audio_seconds: done.seconds, updated_at: new Date().toISOString() })
+          .eq('user_id', userId)
+          .eq('file_sha256', prior.file_sha256)
+      }
       if (done.seconds > MAX_AUDIO_SECONDS) {
         return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: done.seconds } })
       }
@@ -236,10 +306,6 @@ Deno.serve(async (req) => {
     }
 
     // ------------------------------------------------------------------ nova transcricao
-    const guard = await checkBudget(userId, { kind: 'transcription', countsAsNote: true })
-    if (!guard.ok) return guardResponse(guard, 'edge:transcribe', userId)
-    const g = guard.guard!
-
     const inForm = await req.formData()
     const file = inForm.get('file') as File
     if (!file) return errorResponse('TRANSCRIBE_FILE_MISSING', { source: 'edge:transcribe', userId })
@@ -247,6 +313,35 @@ Deno.serve(async (req) => {
       return errorResponse('TRANSCRIBE_TOO_LARGE', { source: 'edge:transcribe', userId, detail: { bytes: file.size } })
     }
     const diarize = inForm.get('diarize') === 'true'
+
+    // Mesmo audio desta pessoa ja transcrito (ou em andamento no AssemblyAI): reaproveita ANTES do
+    // freio -- uma retentativa nao deve gastar nem contar no limite diario de minutos.
+    let cacheKey: string | null = null
+    if (userId) {
+      const sent = String(inForm.get('sha256') ?? '').toLowerCase()
+      const fileHash = HEX64.test(sent) ? sent : await sha256Hex(await file.arrayBuffer())
+      cacheKey = diarize ? await sha256Hex(new TextEncoder().encode(`${fileHash}:diarize`)) : fileHash
+      const hit = await cacheGet(userId, cacheKey)
+      if (hit?.transcript) {
+        await logAuditServer({
+          severity: 'info',
+          category: 'system',
+          source: 'edge:transcribe',
+          code: 'TRANSCRIBE_DEDUPED',
+          message: 'Mesmo audio enviado de novo: transcricao reaproveitada, sem custo.',
+          user_id: userId,
+          detail: { bytes: file.size, provider: hit.provider },
+        })
+        return json({ transcript: hit.transcript, language: 'pt-BR', provider: hit.provider ?? 'cache', cached: true })
+      }
+      if (hit?.job_id && Date.now() - Date.parse(hit.created_at) < JOB_REUSE_MS) {
+        return json({ jobId: hit.job_id, provider: 'assemblyai', route: 'dedupe' }, 202)
+      }
+    }
+
+    const guard = await checkBudget(userId, { kind: 'transcription', countsAsNote: true })
+    if (!guard.ok) return guardResponse(guard, 'edge:transcribe', userId)
+    const g = guard.guard!
 
     const tooBigForWhisper = file.size > WHISPER_MAX_MB * 1024 * 1024
     const limits = (g.provider_limits?.groq ?? {}) as Record<string, number>
@@ -261,7 +356,10 @@ Deno.serve(async (req) => {
     const route = tooBigForWhisper ? 'size' : diarize ? 'diarize' : groqNearLimit ? 'groq_limit' : null
     if (route && ASSEMBLYAI_API_KEY) {
       const id = await assemblyStart(file, diarize)
-      if (id) return json({ jobId: id, provider: 'assemblyai', route }, 202)
+      if (id) {
+        if (userId && cacheKey) await cachePut(userId, cacheKey, { job_id: id, transcript: null, provider: 'assemblyai' })
+        return json({ jobId: id, provider: 'assemblyai', route }, 202)
+      }
       // Upload pro AssemblyAI falhou: tenta o Whisper mesmo assim. Se o arquivo for grande, o
       // Whisper recusa e o catch devolve a mensagem certa.
       await reportIssue('TRANSCRIBE_PROVIDER_ERROR', {
@@ -281,6 +379,7 @@ Deno.serve(async (req) => {
       if (err instanceof WhisperError && err.fallback && ASSEMBLYAI_API_KEY) {
         const id = await assemblyStart(file, diarize)
         if (id) {
+          if (userId && cacheKey) await cachePut(userId, cacheKey, { job_id: id, transcript: null, provider: 'assemblyai' })
           await reportIssue(err.code, {
             source: 'edge:transcribe',
             userId,
@@ -304,6 +403,11 @@ Deno.serve(async (req) => {
 
     if (result.seconds > MAX_AUDIO_SECONDS) {
       return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: result.seconds } })
+    }
+
+    // Texto vazio nao entra no cache: a proxima tentativa precisa poder transcrever de novo.
+    if (userId && cacheKey && result.text.trim()) {
+      await cachePut(userId, cacheKey, { transcript: result.text, provider: PROVIDER, audio_seconds: result.seconds, job_id: null })
     }
 
     return json({ transcript: result.text, language: 'pt-BR', provider: PROVIDER })
