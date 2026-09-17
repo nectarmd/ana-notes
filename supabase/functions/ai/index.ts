@@ -5,34 +5,54 @@
 //   summary / action_items / chat / mindmap -> Haiku 4.5  (rapido e barato)
 //   detailed / analysis / feedback          -> Sonnet 5   (qualidade alta)
 //
-// Todo gasto passa por `checkBudget` (cota diaria, teto global, rate limit) e e
-// contabilizado em api_usage com os tokens REAIS devolvidos pela Anthropic.
+// Todo gasto passa por `checkBudget` (custo real, notas por hora, rajada) e e contabilizado em
+// api_usage com os tokens REAIS devolvidos pela Anthropic. Todo erro sai por `errorResponse`:
+// mensagem simples para o usuario, codigo + causa tecnica para o administrador.
 
 // @ts-nocheck  (ambiente Deno; tipos resolvidos no runtime do Supabase)
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { callerId, checkBudget, cors, guardResponse, logAuditServer, logUsage } from '../_shared/guard.ts'
+import {
+  adminClient,
+  breakerOpen,
+  callerId,
+  checkBudget,
+  clearBreaker,
+  cors,
+  errorResponse,
+  guardResponse,
+  isServiceCall,
+  logAuditServer,
+  logUsage,
+} from '../_shared/guard.ts'
+import { classifyAnthropic, CodedError } from '../_shared/errors.ts'
 
 const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY')!
 const HAIKU = 'claude-haiku-4-5-20251001'
 const SONNET = 'claude-sonnet-5'
 
-// USD por 1 milhao de tokens. Ajuste aqui se a Anthropic mudar a tabela.
+// USD por 1 milhao de tokens (tabela oficial da Anthropic, conferida em 17/09/2026).
 const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
   [HAIKU]: { input: 1.0, output: 5.0 },
   [SONNET]: { input: 2.0, output: 10.0 },
 }
-// Escrever no cache custa 1.25x a entrada; ler custa 0.10x.
+// Cache de 5 minutos: escrever custa 1.25x a entrada; ler custa 0.10x.
 const CACHE_WRITE_MULT = 1.25
 const CACHE_READ_MULT = 0.1
 
 // Limite de entrada (controla custo e reduz superficie de injecao).
 const MAX_INPUT = 60000
-// Acima disso o transcript vira prefixo cacheavel (o minimo da Anthropic e ~2048 tokens).
+// Acima disso o transcript vira prefixo cacheavel.
 const CACHE_MIN_CHARS = 8000
 // A Anthropic aceita ate 5 MB por imagem; base64 ocupa ~4/3 dos bytes.
 const MAX_IMAGE_B64_CHARS = Math.floor((5 * 1024 * 1024 * 4) / 3)
 // Chat: transcripts gigantes viram resumo + inicio/fim, para nao pagar o texto inteiro por pergunta.
 const CHAT_FULL_LIMIT = 40000
+
+// Novas tentativas para falhas TRANSITORIAS (429, 5xx, 529 overloaded). Uma unica "Overloaded"
+// ja derrubou um resumo em 02/09; esperar poucos segundos quase sempre resolve.
+const MAX_ATTEMPTS = 3
+const BACKOFF_MS = [1000, 3000]
+const MAX_RETRY_AFTER_MS = 8000
 
 // Blindagem contra prompt injection: a transcricao e DADO, nunca instrucao.
 const GUARD =
@@ -75,62 +95,108 @@ function themeHint(template?: string, context?: string): string {
   return s
 }
 
+// Instrucoes compartilhadas entre o fluxo normal e a regeneracao pelo administrador: uma nota
+// regenerada precisa sair IGUAL a uma que deu certo de primeira.
+const summaryInstruction = (hint: string) =>
+  `Resuma a reuniao em 5 a 8 bullets curtos e objetivos comecando com "- ", destacando decisoes e proximos passos.` +
+  ' Este e o resumo rapido: va direto ao ponto, uma ideia por bullet, sem elaborar ou justificar' +
+  ` (o detalhamento fica para outro campo, gerado separadamente).${hint}`
+
+const ACTION_ITEMS_INSTRUCTION =
+  'Extraia os action items dos dados. Responda APENAS com um array JSON de objetos {"id":string,"text":string,"owner":string|null,"due":string|null,"done":false}. Se nao houver, retorne [].'
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+interface CallMeta {
+  task: string
+  userId: string | null
+  /** Havia disjuntor aberto para a Anthropic: o primeiro sucesso fecha e resolve o alerta. */
+  breakerWasSet?: boolean
+}
+
 async function anthropic(
   model: string,
   system: string,
   content: unknown[],
   maxTokens: number,
-  meta: { task: string; userId: string | null },
+  meta: CallMeta,
 ): Promise<string> {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content }],
-    }),
-  })
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
-  const data = await res.json()
+  let lastStatus = 0
+  let lastBody = ''
 
-  // Contabiliza tokens reais devolvidos pela API (nao estimativa).
-  const inTok = data.usage?.input_tokens ?? 0
-  const outTok = data.usage?.output_tokens ?? 0
-  const cacheWrite = data.usage?.cache_creation_input_tokens ?? 0
-  const cacheRead = data.usage?.cache_read_input_tokens ?? 0
-  const price = PRICE_PER_MTOK[model] ?? { input: 0, output: 0 }
-  const cost =
-    (inTok * price.input +
-      cacheWrite * price.input * CACHE_WRITE_MULT +
-      cacheRead * price.input * CACHE_READ_MULT +
-      outTok * price.output) /
-    1e6
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content }],
+      }),
+    })
 
-  await logUsage({
-    user_id: meta.userId,
-    provider: 'anthropic',
-    model,
-    task: meta.task,
-    input_tokens: inTok + cacheWrite + cacheRead,
-    output_tokens: outTok,
-    cache_write_tokens: cacheWrite,
-    cache_read_tokens: cacheRead,
-    cost_usd: cost,
-  })
+    if (res.ok) {
+      const data = await res.json()
 
-  // Pega TODOS os blocos de texto (Sonnet pode incluir um bloco de "thinking" antes).
-  const blocks = Array.isArray(data.content) ? data.content : []
-  return blocks
-    .filter((b: { type?: string }) => b?.type === 'text')
-    .map((b: { text?: string }) => b.text ?? '')
-    .join('\n')
-    .trim()
+      // Contabiliza tokens reais devolvidos pela API (nao estimativa).
+      const inTok = data.usage?.input_tokens ?? 0
+      const outTok = data.usage?.output_tokens ?? 0
+      const cacheWrite = data.usage?.cache_creation_input_tokens ?? 0
+      const cacheRead = data.usage?.cache_read_input_tokens ?? 0
+      const price = PRICE_PER_MTOK[model] ?? { input: 0, output: 0 }
+      const cost =
+        (inTok * price.input +
+          cacheWrite * price.input * CACHE_WRITE_MULT +
+          cacheRead * price.input * CACHE_READ_MULT +
+          outTok * price.output) /
+        1e6
+
+      await logUsage({
+        user_id: meta.userId,
+        provider: 'anthropic',
+        model,
+        task: meta.task,
+        input_tokens: inTok + cacheWrite + cacheRead,
+        output_tokens: outTok,
+        cache_write_tokens: cacheWrite,
+        cache_read_tokens: cacheRead,
+        cost_usd: cost,
+      })
+
+      if (meta.breakerWasSet) {
+        meta.breakerWasSet = false
+        await clearBreaker('anthropic')
+      }
+
+      // Pega TODOS os blocos de texto (Sonnet pode incluir um bloco de "thinking" antes).
+      const blocks = Array.isArray(data.content) ? data.content : []
+      return blocks
+        .filter((b: { type?: string }) => b?.type === 'text')
+        .map((b: { text?: string }) => b.text ?? '')
+        .join('\n')
+        .trim()
+    }
+
+    lastStatus = res.status
+    lastBody = await res.text()
+    const { code, retryable } = classifyAnthropic(lastStatus, lastBody)
+    if (!retryable || attempt === MAX_ATTEMPTS) {
+      throw new CodedError(code, `Anthropic ${lastStatus} (tentativa ${attempt}): ${lastBody.slice(0, 800)}`)
+    }
+
+    const retryAfter = Number(res.headers.get('retry-after'))
+    const wait = Number.isFinite(retryAfter) && retryAfter > 0
+      ? Math.min(retryAfter * 1000, MAX_RETRY_AFTER_MS)
+      : BACKOFF_MS[attempt - 1] ?? 3000
+    await sleep(wait)
+  }
+
+  throw new CodedError('AI_PROVIDER_ERROR', `Anthropic ${lastStatus}: ${lastBody.slice(0, 800)}`)
 }
 
 function extractJson<T>(text: string, fallback: T): T {
@@ -143,12 +209,37 @@ function extractJson<T>(text: string, fallback: T): T {
 }
 
 /**
+ * IDs dos itens vinham DIRETO do modelo ("1", "2"...): repetidos entre notas, colidiam como chave na
+ * lista de Tarefas (que junta itens de todas as notas). Aqui cada item ganha um UUID proprio e os
+ * campos sao saneados -- um item sem texto nao vira tarefa fantasma.
+ */
+function normalizeActionItems(raw: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((it) => it && typeof it === 'object' && String((it as { text?: unknown }).text ?? '').trim())
+    .slice(0, 50)
+    .map((it) => {
+      const o = it as Record<string, unknown>
+      const owner = typeof o.owner === 'string' && o.owner.trim() ? o.owner.trim().slice(0, 60) : null
+      const due = typeof o.due === 'string' && o.due.trim() ? o.due.trim().slice(0, 30) : null
+      return {
+        id: crypto.randomUUID(),
+        text: String(o.text).trim().slice(0, 500),
+        owner,
+        due,
+        done: false,
+        priority: 'normal',
+      }
+    })
+}
+
+/**
  * Objeto JSON obrigatorio, sem fallback silencioso: o resultado ruim seria gravado na nota como
  * se fosse bom e a tela ficaria em branco para sempre, sem opcao de gerar de novo.
  *
  * So aceita `{...}`. Uma resposta cortada no max_tokens nao tem chave de fechamento, e casar
  * `[...]` pegaria um array de dentro do JSON (ex.: `strengths`) e o gravaria como se fosse a
- * analise inteira. Falhar aqui devolve 500 com mensagem e o usuario tenta outra vez.
+ * analise inteira.
  */
 function requireJsonObject<T>(text: string, what: string): T {
   const match = text.match(/\{[\s\S]*\}/)
@@ -160,7 +251,70 @@ function requireJsonObject<T>(text: string, what: string): T {
       /* resposta truncada ou malformada: cai no erro abaixo */
     }
   }
-  throw new Error(`A IA nao conseguiu gerar ${what} agora. Tente novamente.`)
+  throw new CodedError('AI_OUTPUT_INVALID', `${what}: resposta sem JSON valido (${text.length} chars): ${text.slice(0, 300)}`)
+}
+
+const jsonResponse = (obj: unknown) =>
+  new Response(JSON.stringify(obj), { headers: { ...cors, 'content-type': 'application/json' } })
+
+/**
+ * Regenera resumo + itens de acao de uma nota que ficou sem (ex.: creditos da Anthropic acabaram
+ * no meio do processamento, 16/09/2026). So por chamada de servico (CRON_SECRET) -- e acao do
+ * administrador, entao nao passa pelo freio do usuario, mas o gasto e contabilizado na conta do
+ * dono da nota, como se ele mesmo tivesse processado.
+ */
+async function regenerateNote(noteId: string, force: boolean): Promise<Response> {
+  const admin = adminClient()
+  if (!admin) return errorResponse('BUDGET_UNAVAILABLE', { source: 'edge:ai.regenerate', technical: 'sem service role' })
+
+  const { data: note, error } = await admin
+    .from('notes')
+    .select('id, user_id, transcript, template, context, summary, status')
+    .eq('id', noteId)
+    .single()
+  if (error || !note) {
+    return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai.regenerate', technical: `nota ${noteId} nao encontrada: ${error?.message ?? ''}` })
+  }
+  if (!force && String(note.summary ?? '').trim()) {
+    return jsonResponse({ ok: true, skipped: 'nota ja tem resumo', note_id: noteId })
+  }
+  if (!String(note.transcript ?? '').trim()) {
+    return errorResponse('AI_EMPTY_TRANSCRIPT', { source: 'edge:ai.regenerate', userId: note.user_id, noteId })
+  }
+
+  const meta: CallMeta = { task: 'summary', userId: note.user_id }
+  const hint = themeHint(note.template, note.context)
+  const dataBlock = wrap(note.transcript)
+  const block: Record<string, unknown> = { type: 'text', text: dataBlock }
+  if (dataBlock.length >= CACHE_MIN_CHARS) block.cache_control = { type: 'ephemeral' }
+
+  try {
+    const summary = (await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: summaryInstruction(hint) }], 800, meta)).trim()
+    meta.task = 'action_items'
+    const itemsText = await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: ACTION_ITEMS_INSTRUCTION }], 1000, meta)
+    const actionItems = normalizeActionItems(extractJson(itemsText, []))
+
+    const { error: upErr } = await admin
+      .from('notes')
+      .update({ summary, action_items: actionItems, status: 'ready', updated_at: new Date().toISOString() })
+      .eq('id', noteId)
+    if (upErr) throw new CodedError('UNEXPECTED', `falha ao salvar nota ${noteId}: ${upErr.message}`)
+
+    await logAuditServer({
+      severity: 'info',
+      category: 'system',
+      source: 'edge:ai.regenerate',
+      code: 'ADMIN_REGENERATE_NOTE',
+      message: `Resumo regenerado pelo administrador (${summary.length} caracteres, ${actionItems.length} itens de acao).`,
+      user_id: note.user_id,
+      note_id: noteId,
+    })
+    return jsonResponse({ ok: true, note_id: noteId, summary_chars: summary.length, action_items: actionItems.length })
+  } catch (err) {
+    const code = err instanceof CodedError ? err.code : 'UNEXPECTED'
+    const technical = err instanceof CodedError ? err.technical : String(err)
+    return errorResponse(code, { source: 'edge:ai.regenerate', userId: note.user_id, noteId, technical })
+  }
 }
 
 Deno.serve(async (req) => {
@@ -169,39 +323,43 @@ Deno.serve(async (req) => {
   let userId: string | null = null
   let task = ''
   try {
-    userId = await callerId(req)
-    const guard = await checkBudget(userId)
-    if (!guard.ok) return guardResponse(guard)
-
-    const body = await req.json()
+    const body = await req.json().catch(() => ({}))
     task = String(body.task ?? '')
+
+    if (task === 'regenerate_note') {
+      if (!isServiceCall(req)) {
+        return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai', technical: 'regenerate_note sem x-cron-secret valido' })
+      }
+      return await regenerateNote(String(body.note_id ?? ''), body.force === true)
+    }
+
+    userId = await callerId(req)
+    // Toda nota processada gera exatamente um resumo: e ele que conta para "notas por hora".
+    const guard = await checkBudget(userId, { kind: 'ai', countsAsNote: task === 'summary' })
+    if (!guard.ok) return guardResponse(guard, 'edge:ai', userId)
+
+    // Disjuntor aberto (credito esgotado / chave recusada ha poucos minutos): responde na hora, sem
+    // ir a Anthropic. Passado o prazo, a proxima chamada testa de novo e, se der certo, fecha.
+    const openCode = breakerOpen(guard.guard, 'anthropic')
+    if (openCode) {
+      return errorResponse(openCode, { source: 'edge:ai', userId, fromBreaker: true, detail: { task } })
+    }
+
     const transcript = (body.transcript as string) ?? ''
     const hint = themeHint(body.template as string, body.context as string)
     let out: Record<string, unknown> = {}
 
-    const meta = { task, userId }
+    const meta: CallMeta = { task, userId, breakerWasSet: !!guard.guard?.breaker?.anthropic }
 
     /**
      * Sem isto, uma transcricao vazia (audio que falhou na transcricao, mas cuja nota ja foi
-     * criada) chegava aqui do mesmo jeito; a IA "alucinava" uma explicacao em portugues
-     * dizendo que nao recebeu dados, e essa explicacao era salva como se fosse o resumo/
-     * detalhado de verdade -- sem erro nenhum visivel para o usuario. Barra aqui, ANTES de
-     * gastar uma chamada, com um erro claro e reconhecivel.
+     * criada) chegava aqui do mesmo jeito; a IA "alucinava" uma explicacao dizendo que nao
+     * recebeu dados, e essa explicacao era salva como se fosse o resumo de verdade. Barra aqui,
+     * ANTES de gastar uma chamada.
      */
     const NEEDS_TRANSCRIPT = new Set(['summary', 'detailed', 'action_items', 'analysis', 'mindmap', 'feedback'])
     if (NEEDS_TRANSCRIPT.has(task) && !transcript.trim()) {
-      await logAuditServer({
-        severity: 'warning',
-        category: 'user',
-        source: 'edge:ai',
-        message: 'A transcricao esta vazia. Nao ha o que processar.',
-        detail: { task },
-        user_id: userId,
-      })
-      return new Response(JSON.stringify({ error: 'A transcricao esta vazia. Nao ha o que processar.' }), {
-        status: 422,
-        headers: { ...cors, 'content-type': 'application/json' },
-      })
+      return errorResponse('AI_EMPTY_TRANSCRIPT', { source: 'edge:ai', userId, detail: { task } })
     }
 
     /** Tarefa livre (sem transcript): system proprio, sem cache. */
@@ -221,13 +379,7 @@ Deno.serve(async (req) => {
     }
 
     if (task === 'summary') {
-      const text = await askOnTranscript(
-        HAIKU,
-        `Resuma a reuniao em 5 a 8 bullets curtos e objetivos comecando com "- ", destacando decisoes e proximos passos.` +
-          ' Este e o resumo rapido: va direto ao ponto, uma ideia por bullet, sem elaborar ou justificar' +
-          ` (o detalhamento fica para outro campo, gerado separadamente).${hint}`,
-        800,
-      )
+      const text = await askOnTranscript(HAIKU, summaryInstruction(hint), 800)
       out = { summary: text.trim() }
     } else if (task === 'detailed') {
       const text = await askOnTranscript(
@@ -237,12 +389,8 @@ Deno.serve(async (req) => {
       )
       out = { detailed: text.trim() }
     } else if (task === 'action_items') {
-      const text = await askOnTranscript(
-        HAIKU,
-        'Extraia os action items dos dados. Responda APENAS com um array JSON de objetos {"id":string,"text":string,"owner":string|null,"due":string|null,"done":false}. Se nao houver, retorne [].',
-        1000,
-      )
-      out = { actionItems: extractJson(text, []) }
+      const text = await askOnTranscript(HAIKU, ACTION_ITEMS_INSTRUCTION, 1000)
+      out = { actionItems: normalizeActionItems(extractJson(text, [])) }
     } else if (task === 'analysis') {
       const text = await askOnTranscript(
         SONNET,
@@ -253,8 +401,7 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
           ` a resposta precisa caber inteira no limite de tokens, entao va direto aos pontos mais importantes,` +
           ` sem se estender.${hint}`,
         // Reunioes longas (40+ min) geram bastante material pros 9 campos do JSON; 3000 tokens
-        // cortava a resposta no meio ANTES de fechar, e o JSON truncado nao parseava (achado via
-        // /admin/audit em 2026-07-15). Folga maior + prompt mais conciso (max 5 itens por lista).
+        // cortava a resposta no meio ANTES de fechar (achado via /admin/audit em 2026-07-15).
         5000,
       )
       out = { analysis: requireJsonObject(text, 'a analise') }
@@ -359,24 +506,10 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
       const img = body.image as { media_type?: string; data?: string } | undefined
       const allowed = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
       if (!img?.data || !allowed.includes(img.media_type ?? '')) {
-        return new Response(JSON.stringify({ error: 'Imagem invalida. Use PNG, JPEG, WEBP ou GIF.' }), {
-          status: 400,
-          headers: { ...cors, 'content-type': 'application/json' },
-        })
+        return errorResponse('AI_IMAGE_INVALID', { source: 'edge:ai', userId, detail: { media_type: img?.media_type ?? null } })
       }
       if (img.data.length > MAX_IMAGE_B64_CHARS) {
-        await logAuditServer({
-          severity: 'warning',
-          category: 'user',
-          source: 'edge:ai',
-          message: 'Imagem muito grande. Limite de 5 MB.',
-          detail: { task, chars: img.data.length },
-          user_id: userId,
-        })
-        return new Response(JSON.stringify({ error: 'Imagem muito grande. Limite de 5 MB.' }), {
-          status: 413,
-          headers: { ...cors, 'content-type': 'application/json' },
-        })
+        return errorResponse('AI_IMAGE_TOO_LARGE', { source: 'edge:ai', userId, detail: { chars: img.data.length } })
       }
       const maxWords = Math.min(Math.max(Number(body.maxWords ?? 150), 40), 400)
       const text = await ask(
@@ -399,35 +532,19 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
       )
       out = { summary: text.trim() }
     } else {
-      await logAuditServer({
-        severity: 'warning',
-        category: 'system',
-        source: 'edge:ai',
-        message: `task invalida: ${task}`,
-        detail: { task },
-        user_id: userId,
-      })
-      return new Response(JSON.stringify({ error: 'task invalida' }), {
-        status: 400,
-        headers: { ...cors, 'content-type': 'application/json' },
-      })
+      return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai', userId, technical: `task invalida: ${task}` })
     }
 
-    return new Response(JSON.stringify(out), {
-      headers: { ...cors, 'content-type': 'application/json' },
-    })
+    return jsonResponse(out)
   } catch (err) {
-    await logAuditServer({
-      severity: 'error',
-      category: 'system',
+    if (err instanceof CodedError) {
+      return errorResponse(err.code, { source: 'edge:ai', userId, technical: err.technical, detail: { task } })
+    }
+    return errorResponse('UNEXPECTED', {
       source: 'edge:ai',
-      message: String(err).slice(0, 500),
+      userId,
+      technical: `${String(err)}${err instanceof Error && err.stack ? ` | ${err.stack.slice(0, 600)}` : ''}`,
       detail: { task },
-      user_id: userId,
-    })
-    return new Response(JSON.stringify({ error: String(err) }), {
-      status: 500,
-      headers: { ...cors, 'content-type': 'application/json' },
     })
   }
 })

@@ -24,19 +24,28 @@ import {
 } from './aiMock'
 import type { ActionItem, MeetingAnalysis, MindMap } from './types'
 import type { PreparedImage } from './image'
+import { AppError, assertNoAdminCooldown } from './appError'
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * O supabase-js embrulha erros HTTP e esconde o corpo. Os freios de gasto (429/503) e os
- * limites de tamanho (413) respondem `{ error: "mensagem para o usuario" }` — sem ler o
- * corpo, o usuario veria apenas "Edge Function returned a non-2xx status code".
+ * O supabase-js embrulha erros HTTP e esconde o corpo. O servidor responde
+ * `{ error, code, adminOnly, retryAfterSec }` (catalogo em _shared/errors.ts) — sem ler o corpo,
+ * o usuario veria apenas "Edge Function returned a non-2xx status code".
  */
 async function unwrapError(error: unknown): Promise<Error> {
   const ctx = (error as { context?: Response })?.context
   if (ctx && typeof ctx.clone === 'function') {
     try {
       const body = await ctx.clone().json()
+      if (body?.error && typeof body.code === 'string') {
+        return new AppError(
+          String(body.error),
+          body.code,
+          body.adminOnly === true,
+          typeof body.retryAfterSec === 'number' ? body.retryAfterSec : null,
+        )
+      }
       if (body?.error) return new Error(String(body.error))
     } catch {
       /* corpo nao era JSON */
@@ -58,6 +67,8 @@ async function unwrapError(error: unknown): Promise<Error> {
 
 async function invoke<T>(fn: string, body: Record<string, unknown>): Promise<T> {
   if (!supabase) throw new Error('Supabase nao configurado')
+  // Problema que so o administrador resolve ainda em cooldown: falha aqui, sem ir ao servidor.
+  assertNoAdminCooldown()
   const { data, error } = await supabase.functions.invoke(fn, { body })
   if (error) throw await unwrapError(error)
   return data as T
@@ -106,20 +117,30 @@ async function acompanharTranscricao(
 ): Promise<{ transcript: string; language: string }> {
   const LIMITE_MS = 30 * 60 * 1000
   const INTERVALO_MS = 5000
+  // Uma consulta que falha (rede do celular oscilando, provedor lento para responder o status) nao
+  // pode jogar fora uma transcricao de 1 h ja em andamento. So desiste apos falhas SEGUIDAS.
+  const MAX_FALHAS_SEGUIDAS = 6
   const inicio = Date.now()
+  let falhas = 0
+  onProgress?.('A transcrição está em andamento...')
   while (Date.now() - inicio < LIMITE_MS) {
     await delay(INTERVALO_MS)
     const { data, error } = await supabase!.functions.invoke(`transcribe?job=${encodeURIComponent(jobId)}`, {
       method: 'GET',
     })
-    if (error) throw await unwrapError(error)
+    if (error) {
+      const err = await unwrapError(error)
+      const transitorio =
+        !(err instanceof AppError) || err.code === 'TRANSCRIBE_JOB_UNREACHABLE'
+      if (transitorio && ++falhas < MAX_FALHAS_SEGUIDAS) continue
+      throw err
+    }
+    falhas = 0
     const r = data as { transcript?: string; language?: string; status?: string }
     if (typeof r?.transcript === 'string') return { transcript: r.transcript, language: r.language ?? 'pt-BR' }
-    const minutos = Math.round((Date.now() - inicio) / 60000)
+    const minutos = Math.floor((Date.now() - inicio) / 60000)
     onProgress?.(
-      minutos < 1
-        ? 'Áudio grande: a transcrição está em andamento...'
-        : `Áudio grande: transcrevendo há ${minutos} min...`,
+      minutos < 1 ? 'A transcrição está em andamento...' : `Transcrevendo há ${minutos} min — áudios longos levam alguns minutos.`,
     )
   }
   throw new Error(
@@ -141,6 +162,7 @@ export async function transcribeAudio(
   if (opts.diarize) form.append('diarize', 'true')
   // Edge function reads multipart and forwards to the transcription provider.
   if (!supabase) throw new Error('Supabase nao configurado')
+  assertNoAdminCooldown()
   const { data, error } = await supabase.functions.invoke('transcribe', { body: form })
   if (error) throw await unwrapError(error)
   const resposta = data as { transcript?: string; language?: string; jobId?: string }

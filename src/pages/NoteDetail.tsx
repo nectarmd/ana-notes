@@ -26,7 +26,14 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { db, config } from '../lib/api'
-import { chatWithNote, generateAnalysis, generateDetailed, hasAnalysis } from '../lib/ai'
+import {
+  chatWithNote,
+  generateActionItems,
+  generateAnalysis,
+  generateDetailed,
+  generateSummary,
+  hasAnalysis,
+} from '../lib/ai'
 import { pauseSpeaking, resumeSpeaking, speak, stopSpeaking, ttsSupported } from '../lib/tts'
 import { audioDaysLeft, retentionOf } from '../lib/retention'
 import { aiError } from '../lib/aiError'
@@ -59,7 +66,7 @@ export function NoteDetail() {
   const t = useT()
   const [note, setNote] = useState<Note | null | undefined>(undefined)
   const [tab, setTab] = useState<Tab>('summary')
-  const [busy, setBusy] = useState<null | 'detailed' | 'analysis' | 'mindmap'>(null)
+  const [busy, setBusy] = useState<null | 'summary' | 'detailed' | 'analysis' | 'mindmap'>(null)
   const [narration, setNarration] = useState<'idle' | 'speaking' | 'paused'>('idle')
   const [shareOpen, setShareOpen] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
@@ -162,6 +169,29 @@ export function NoteDetail() {
     }
     await navigator.clipboard.writeText(lines.join('\n'))
     toast(t('note.copied'))
+  }
+
+  /**
+   * Nota que ficou sem resumo: a transcricao deu certo e a IA falhou depois (creditos da Anthropic
+   * esgotados em 16/09/2026 deixaram 11 notas assim, com a aba de resumo vazia para sempre e
+   * nenhum jeito de concluir a partir da propria nota). Gera resumo + itens de acao e marca pronta.
+   */
+  async function runSummary() {
+    if (!note) return
+    setBusy('summary')
+    try {
+      const meta = { template: note.template, context: note.context }
+      const summary = await generateSummary(note.transcript, meta)
+      const action_items = note.action_items.length ? note.action_items : await generateActionItems(note.transcript, meta)
+      const updated = await db.updateNote(note.id, { summary, action_items, status: 'ready' })
+      if (profile) await db.logUsage(profile.id, 'ai_summary', note.id)
+      setNote(updated)
+      setTab('summary')
+    } catch (err) {
+      toast(aiError(err, t('common.error')), 'error')
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function runDetailed() {
@@ -542,7 +572,17 @@ export function NoteDetail() {
         <div className="pb-40">
           {tab === 'summary' && (
             <>
-              <ProseBlock text={note.summary} empty={t('note.summaryNA')} />
+              {!note.summary?.trim() && canEdit && note.transcript?.trim() ? (
+                <GenerateCta
+                  title={t('note.summaryMissingTitle')}
+                  subtitle={t('note.summaryMissingSub')}
+                  loading={busy === 'summary'}
+                  onClick={runSummary}
+                  t={t}
+                />
+              ) : (
+                <ProseBlock text={note.summary} empty={t('note.summaryNA')} />
+              )}
               {note.action_items.length > 0 && (
                 <div className="mt-6">
                   <h3 className="flex items-center gap-2 font-display font-semibold mb-3">

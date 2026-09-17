@@ -143,12 +143,17 @@ export type NoteSourceType = 'recording' | 'upload' | 'file' | 'link' | 'call' |
 export type NoteDevice = 'mobile' | 'desktop' | null
 export type NotePriority = 'alta' | 'media' | 'baixa'
 
+/** Urgencia de uma tarefa (avulsa ou vinda de nota). Ausente = 'normal'. */
+export type TaskPriority = 'low' | 'normal' | 'high'
+
 export interface ActionItem {
   id: string
   text: string
-  owner?: string
-  due?: string
+  /** A IA devolve null quando nao identifica responsavel/prazo. */
+  owner?: string | null
+  due?: string | null
   done: boolean
+  priority?: TaskPriority
 }
 
 /** Estruturada saida da "Analise de Reuniao". */

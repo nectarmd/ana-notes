@@ -1,17 +1,24 @@
-// Freio de gasto compartilhado pelas edge functions que chamam APIs pagas.
-// Ordem das checagens: kill switch -> teto global do mes -> cota diaria do usuario -> rate limit.
+// Freio de gasto e resposta de erro compartilhados pelas edge functions que chamam APIs pagas.
+// Ordem das checagens: kill switch -> teto global do mes -> cota diaria do usuario -> minutos de
+// audio do dia -> notas por hora -> rajada anti-abuso.
 //
 // A contabilidade (api_usage) e escrita DEPOIS da chamada, entao o guard sempre olha o
 // consumo ja registrado. Um usuario pode estourar a cota na ultima chamada; o excedente
 // e limitado ao custo de uma unica chamada, e a proxima ja e barrada.
+//
+// Desde 17/09/2026 o freio usa o custo REAL (api_usage.real_cost_usd), nao o custo de tabela.
+// Antes, o gasto "fantasma" do Groq e do AssemblyAI (tier gratuito) contava para o teto mensal:
+// em 16/09 o acumulado estava em US$ 8,50 de US$ 10 com gasto real de US$ 2,00 -- o app inteiro
+// seria bloqueado para todos por volta de 19/09 sem motivo nenhum.
 
 // @ts-nocheck  (ambiente Deno)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { ERRORS } from './errors.ts'
 
 export const cors = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-cron-secret',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 }
 
 export function adminClient() {
@@ -50,7 +57,17 @@ export async function callerId(req: Request): Promise<string | null> {
   }
 }
 
-/** Nunca deixa a contabilidade derrubar a resposta ao usuario. */
+/** Chamada de servico (cron / ferramenta do admin), autenticada pelo CRON_SECRET. */
+export function isServiceCall(req: Request): boolean {
+  const secret = Deno.env.get('CRON_SECRET') ?? ''
+  return !!secret && req.headers.get('x-cron-secret') === secret
+}
+
+/**
+ * Nunca deixa a contabilidade derrubar a resposta ao usuario.
+ * `billing_mode` e `real_cost_usd` NAO sao passados aqui: um trigger no banco os preenche a partir
+ * de app_settings.provider_billing (ver migration 0038), para valer em todo insert.
+ */
 export async function logUsage(row: Record<string, unknown>) {
   try {
     const admin = adminClient()
@@ -80,6 +97,7 @@ export interface AuditLogRow {
   category: 'system' | 'user' | 'silent' | 'security'
   source: string
   message: string
+  code?: string | null
   detail?: Record<string, unknown> | null
   user_id?: string | null
   note_id?: string | null
@@ -110,87 +128,222 @@ export async function logAuditServer(row: AuditLogRow): Promise<void> {
   }
 }
 
-export interface GuardResult {
-  ok: boolean
-  status?: number
-  error?: string
+/** Mesmo cuidado do logAuditServer: nunca pendura, nunca lanca. */
+async function rpcQuiet(fn: string, args: Record<string, unknown>): Promise<unknown> {
+  try {
+    const admin = adminClient()
+    if (!admin) return null
+    const call = admin.rpc(fn, args)
+    const res = await Promise.race([call, new Promise((resolve) => setTimeout(() => resolve(null), 1500))])
+    return (res as { data?: unknown })?.data ?? null
+  } catch (_) {
+    return null
+  }
 }
 
-const json = (body: unknown, status: number) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json' } })
-
-export const guardResponse = (g: GuardResult) => json({ error: g.error }, g.status ?? 429)
-
-const BUDGET_UNAVAILABLE: GuardResult = {
-  ok: false,
-  status: 503,
-  error: 'Nao foi possivel verificar o orcamento agora. Tente novamente em instantes.',
+export interface ErrorContext {
+  source: string
+  userId?: string | null
+  noteId?: string | null
+  /** Causa tecnica crua (corpo do provedor, stack). Vai SO para o log. */
+  technical?: string
+  detail?: Record<string, unknown>
+  /** Registra o erro sem repetir o log (ex.: disjuntor ja aberto, que ja foi logado). */
+  skipLog?: boolean
+  /**
+   * A chamada foi barrada PELO disjuntor ja aberto. Nao reabre o disjuntor (senao, enquanto algum
+   * usuario insistisse, o prazo seria empurrado para frente e ele nunca fecharia sozinho) e nao
+   * repete a linha no log -- so conta mais uma ocorrencia e mais um usuario afetado no alerta.
+   */
+  fromBreaker?: boolean
 }
 
 /**
- * O medidor de gasto quebrando e, por definicao, um erro que NINGUEM ve hoje (o usuario so
- * recebe "tente de novo"; nenhum admin sabe que a contabilidade parou de funcionar). Loga como
- * 'critical'/'silent' antes de devolver o sentinela, pra nao repetir a mesma logica 3x.
+ * A UNICA forma de responder erro nas edge functions. Faz as quatro coisas que o
+ * administrador pediu, sempre juntas:
+ *  1. o usuario recebe uma mensagem simples (`error`) + o codigo (`code`);
+ *  2. o audit_log recebe o codigo e a causa tecnica real;
+ *  3. problema que so o admin resolve vira alerta agregado em admin_alerts;
+ *  4. problema do provedor inteiro abre o disjuntor, para nao martelar o provedor.
  */
-async function budgetUnavailable(userId: string | null, reason: string): Promise<GuardResult> {
-  await logAuditServer({
-    severity: 'critical',
-    category: 'silent',
-    source: 'edge:guard.checkBudget',
-    message: `Medidor de orcamento indisponivel: ${reason}`,
-    user_id: userId,
-  })
-  return BUDGET_UNAVAILABLE
+export async function errorResponse(code: string, ctx: ErrorContext): Promise<Response> {
+  const def = ERRORS[code] ?? ERRORS.UNEXPECTED
+  const realCode = ERRORS[code] ? code : 'UNEXPECTED'
+
+  await reportIssue(realCode, ctx)
+
+  return new Response(
+    JSON.stringify({
+      error: def.user,
+      code: realCode,
+      adminOnly: !!def.adminOnly,
+      retryAfterSec: def.retryAfterSec ?? null,
+    }),
+    { status: def.status, headers: { ...cors, 'content-type': 'application/json' } },
+  )
 }
+
+/**
+ * Registra (log + alerta + disjuntor) SEM responder ao usuario. Para quando o problema foi
+ * contornado: o Groq recusou mas o AssemblyAI assumiu -- o usuario recebe a transcricao
+ * normalmente, e o administrador ainda precisa saber que o provedor principal falhou.
+ */
+export async function reportIssue(code: string, ctx: ErrorContext): Promise<void> {
+  const def = ERRORS[code] ?? ERRORS.UNEXPECTED
+  const realCode = ERRORS[code] ? code : 'UNEXPECTED'
+  const technical = String(ctx.technical ?? '').slice(0, 1500)
+
+  if (!ctx.skipLog && !ctx.fromBreaker) {
+    await logAuditServer({
+      severity: def.severity,
+      category: def.category,
+      source: ctx.source,
+      code: realCode,
+      message: technical ? `${def.admin} | ${technical}` : def.admin,
+      detail: ctx.detail ?? null,
+      user_id: ctx.userId ?? null,
+      note_id: ctx.noteId ?? null,
+    })
+  }
+
+  if (def.alert) {
+    await rpcQuiet('raise_admin_alert', {
+      p_code: realCode,
+      p_severity: def.severity === 'info' ? 'warning' : def.severity,
+      p_title: def.admin,
+      p_detail: { source: ctx.source, technical: technical.slice(0, 500), ...(ctx.detail ?? {}) },
+      p_user: ctx.userId ?? null,
+    })
+  }
+
+  if (def.breaker && !ctx.fromBreaker) {
+    await rpcQuiet('trip_ai_breaker', {
+      p_provider: def.breaker.provider,
+      p_code: realCode,
+      p_minutes: def.breaker.minutes,
+    })
+  }
+}
+
+/** O provedor voltou a responder: fecha o disjuntor e resolve o alerta correspondente. */
+export async function clearBreaker(provider: string): Promise<void> {
+  await rpcQuiet('clear_ai_breaker', { p_provider: provider })
+}
+
+export interface Guard {
+  day_cost_user: number
+  month_cost_global: number
+  calls_last_min: number
+  notes_last_hour: number
+  audio_seconds_today_user: number
+  groq_audio_seconds_last_hour: number
+  groq_audio_seconds_today: number
+  ai_enabled: boolean
+  daily_usd_per_user: number
+  monthly_usd_global: number
+  rate_per_min: number
+  notes_per_hour: number
+  audio_minutes_per_day: number
+  provider_billing: Record<string, 'paid' | 'free'>
+  provider_limits: Record<string, Record<string, unknown>>
+  breaker: Record<string, { code: string; until: string; since: string }>
+}
+
+export interface GuardResult {
+  ok: boolean
+  code?: string
+  technical?: string
+  guard?: Guard
+}
+
+/** Disjuntor aberto para o provedor? Devolve o codigo que o abriu. */
+export function breakerOpen(g: Guard | undefined, provider: string): string | null {
+  const b = g?.breaker?.[provider]
+  if (!b?.until) return null
+  return Date.parse(b.until) > Date.now() ? b.code : null
+}
+
+export type GuardKind = 'ai' | 'transcription'
 
 /**
  * Roda os freios antes de gastar dinheiro. Se o medidor falhar, BARRA a chamada (fail-closed):
- * a alternativa antiga (deixar passar) significa que uma falha do PROPRIO medidor vira gasto
- * sem teto e sem registro, sem nenhum aviso visivel ate a fatura chegar. Um erro ocasional
- * numa falha passageira e um preco aceitavel por nunca gastar as cegas.
+ * a alternativa (deixar passar) significa que uma falha do PROPRIO medidor vira gasto sem teto e
+ * sem registro. Um erro ocasional numa falha passageira e um preco aceitavel por nunca gastar as
+ * cegas.
+ *
+ * `kind`: o limite de "notas por hora" so faz sentido quando comeca uma nota nova (transcricao ou
+ * resumo); o de minutos de audio, so na transcricao. Chat e detalhado nao contam nota nova.
  */
-export async function checkBudget(userId: string | null): Promise<GuardResult> {
-  if (!userId) return { ok: false, status: 401, error: 'Sessao invalida. Entre novamente.' }
+export async function checkBudget(
+  userId: string | null,
+  opts: { kind?: GuardKind; countsAsNote?: boolean } = {},
+): Promise<GuardResult> {
+  if (!userId) return { ok: false, code: 'AUTH_SESSION_INVALID' }
 
   const admin = adminClient()
-  if (!admin) return budgetUnavailable(userId, 'service role indisponivel')
+  if (!admin) return { ok: false, code: 'BUDGET_UNAVAILABLE', technical: 'service role indisponivel' }
 
-  let g: Record<string, number | boolean>
+  let g: Guard
   try {
     const { data, error } = await admin.rpc('usage_guard', { p_user: userId })
-    if (error || !data) return budgetUnavailable(userId, error?.message ?? 'RPC usage_guard sem dados')
-    g = data as Record<string, number | boolean>
+    if (error || !data) {
+      return { ok: false, code: 'BUDGET_UNAVAILABLE', technical: error?.message ?? 'RPC usage_guard sem dados' }
+    }
+    g = data as Guard
   } catch (err) {
-    return budgetUnavailable(userId, String(err))
+    return { ok: false, code: 'BUDGET_UNAVAILABLE', technical: String(err) }
   }
 
-  if (g.ai_enabled === false) {
-    return { ok: false, status: 503, error: 'As funcoes de IA estao temporariamente desativadas pelo administrador.' }
-  }
+  if (g.ai_enabled === false) return { ok: false, code: 'AI_DISABLED', guard: g }
 
   if (Number(g.month_cost_global) >= Number(g.monthly_usd_global)) {
     return {
       ok: false,
-      status: 503,
-      error: 'O orcamento mensal de IA da empresa foi atingido. Fale com o administrador.',
+      code: 'BUDGET_MONTHLY_GLOBAL',
+      technical: `real no mes US$ ${Number(g.month_cost_global).toFixed(2)} >= teto US$ ${Number(g.monthly_usd_global).toFixed(2)}`,
+      guard: g,
     }
   }
 
   if (Number(g.day_cost_user) >= Number(g.daily_usd_per_user)) {
     return {
       ok: false,
-      status: 429,
-      error: 'Voce atingiu seu limite diario de uso da IA. Tente novamente amanha.',
+      code: 'BUDGET_DAILY_USER',
+      technical: `real hoje US$ ${Number(g.day_cost_user).toFixed(4)} >= limite US$ ${Number(g.daily_usd_per_user).toFixed(2)}`,
+      guard: g,
+    }
+  }
+
+  if (opts.kind === 'transcription' && Number(g.audio_seconds_today_user) >= Number(g.audio_minutes_per_day) * 60) {
+    return {
+      ok: false,
+      code: 'BUDGET_AUDIO_PER_DAY',
+      technical: `audio hoje ${Math.round(Number(g.audio_seconds_today_user) / 60)} min >= limite ${g.audio_minutes_per_day} min`,
+      guard: g,
+    }
+  }
+
+  if (opts.countsAsNote && Number(g.notes_last_hour) >= Number(g.notes_per_hour)) {
+    return {
+      ok: false,
+      code: 'BUDGET_NOTES_PER_HOUR',
+      technical: `${g.notes_last_hour} notas na ultima hora >= limite ${g.notes_per_hour}`,
+      guard: g,
     }
   }
 
   if (Number(g.calls_last_min) >= Number(g.rate_per_min)) {
     return {
       ok: false,
-      status: 429,
-      error: 'Muitas solicitacoes em pouco tempo. Espere um minuto e tente de novo.',
+      code: 'BUDGET_RATE_BURST',
+      technical: `${g.calls_last_min} chamadas no ultimo minuto >= limite ${g.rate_per_min}`,
+      guard: g,
     }
   }
 
-  return { ok: true }
+  return { ok: true, guard: g }
 }
+
+/** Atalho: transforma um GuardResult reprovado na resposta padrao de erro. */
+export const guardResponse = (r: GuardResult, source: string, userId: string | null) =>
+  errorResponse(r.code ?? 'UNEXPECTED', { source, userId, technical: r.technical })

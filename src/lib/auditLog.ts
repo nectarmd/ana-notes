@@ -36,6 +36,8 @@ interface LogClientInput {
   category?: 'system' | 'user' | 'silent'
   source: string
   message: string
+  /** Codigo para agrupar no /admin/audit (ex.: NETWORK, CLIENT_UNEXPECTED). */
+  code?: string
   detail?: Record<string, unknown>
   note_id?: string
 }
@@ -53,6 +55,7 @@ export function logClientError(input: LogClientInput): void {
       severity: input.severity ?? 'error',
       category: input.category ?? 'system',
       source: input.source,
+      code: input.code,
       message: input.message.slice(0, 500),
       detail: input.detail,
       note_id: input.note_id,

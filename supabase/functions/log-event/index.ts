@@ -48,10 +48,17 @@ Deno.serve(async (req) => {
     const source = 'client:' + String(body.source ?? 'unknown').replace(/^(edge|client):/, '').slice(0, 60)
     const message = String(body.message ?? 'erro sem mensagem').slice(0, 500)
 
+    // Codigo do erro vindo do cliente (ex.: NETWORK, CLIENT_UNEXPECTED). So letras/digitos/_ e
+    // prefixo forcado "CLIENT_" quando nao for um codigo conhecido do app -- um cliente hostil nao
+    // consegue fazer um erro comum parecer um codigo de servidor.
+    const rawCode = typeof body.code === 'string' ? body.code.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 60) : ''
+    const code = rawCode ? (rawCode.startsWith('CLIENT_') || rawCode === 'NETWORK' ? rawCode : `CLIENT_${rawCode}`) : null
+
     await logAuditServer({
       severity,
       category,
       source,
+      code,
       message,
       detail: typeof body.detail === 'object' && body.detail ? body.detail : null,
       user_id: userId,

@@ -19,7 +19,8 @@ import { extractFile, extractLink, FileError, TEXT_FILE_ACCEPT } from '../lib/ex
 import { AUDIO_ACCEPT, VIDEO_ACCEPT, isAudioFile, isVideoFile } from '../lib/mediaKind'
 import { IMAGE_ACCEPT, isSupportedImage, MAX_IMAGE_MB, prepareImage } from '../lib/image'
 import { aiError } from '../lib/aiError'
-import { logClientError } from '../lib/auditLog'
+import { logClientError, logSilentError } from '../lib/auditLog'
+import { activeCooldown, cooldownSecondsLeft, formatWait } from '../lib/appError'
 import { useAuth } from '../auth/AuthProvider'
 import {
   useRecorder,
@@ -39,6 +40,8 @@ import {
   listPendingRecordings,
   getPendingRecordingBlob,
   deletePendingRecording,
+  setPendingRecordingNote,
+  type PendingRecordingMeta,
 } from '../lib/audioStore'
 import { isSilentAudio, audioRms } from '../lib/audioLevel'
 import { currentDevice } from '../lib/device'
@@ -90,6 +93,19 @@ export function Capture() {
   // A ultima tentativa parou no aviso de "gravacao silenciosa": habilita o botao de
   // transcrever mesmo assim (a decisao e do usuario, nunca do app).
   const [silentDetected, setSilentDetected] = useState(false)
+  // Segundos ate poder tentar de novo (limite de uso ou problema que so o administrador resolve).
+  // Sem isto a Larissa tentou 16 vezes seguidas em 16/09 contra creditos esgotados.
+  const [cooldownLeft, setCooldownLeft] = useState(0)
+  useEffect(() => {
+    if (!error) {
+      setCooldownLeft(0)
+      return
+    }
+    const tick = () => setCooldownLeft(cooldownSecondsLeft())
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [error])
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   /**
@@ -512,12 +528,29 @@ export function Capture() {
           status: 'processing',
         })
         createdNoteRef.current = note
+        // Liga a gravacao salva neste aparelho a nota: se a IA falhar e o usuario retomar depois
+        // (outra sessao, outro dia), reaproveita ESTA nota em vez de criar uma copia.
+        setPendingRecordingNote(pendingKey, note.id)
 
         // So contabiliza uso DEPOIS que a nota existe de verdade: uma tentativa que falhou
         // antes disso nao gerou nada e nao deveria custar orcamento na conta do usuario.
         if (opts.audioBlob) {
           await db.logUsage(profile.id, 'recording')
           await db.logUsage(profile.id, 'transcription')
+        }
+      }
+
+      // Persiste o audio ANTES da IA (exceto video: o video e descartado apos extrair o audio).
+      // Na ordem antiga o audio so subia depois do resumo dar certo: quando os creditos da
+      // Anthropic acabaram em 16/09/2026, 11 notas ficaram com o audio so no aparelho de cada
+      // usuaria. Uma falha aqui nao impede o resumo -- o audio segue salvo neste aparelho.
+      if (opts.audioBlob && !opts.skipAudioStore && !note.audio_url) {
+        try {
+          const ref = await saveAudio(note.id, profile.id, opts.audioBlob)
+          if (ref) note = await db.updateNote(note.id, { audio_url: ref })
+          createdNoteRef.current = note
+        } catch (upErr) {
+          logSilentError('client:Capture.saveAudio', upErr)
         }
       }
 
@@ -537,12 +570,6 @@ export function Capture() {
         note = await db.updateNote(note.id, { summary, action_items: actionItems, status: 'ready' })
         createdNoteRef.current = note
         await db.logUsage(profile.id, 'ai_summary')
-      }
-
-      // Persiste o audio (exceto video: o video e descartado apos extrair o audio).
-      if (opts.audioBlob && !opts.skipAudioStore) {
-        const ref = await saveAudio(note.id, profile.id, opts.audioBlob)
-        if (ref) note = await db.updateNote(note.id, { audio_url: ref })
       }
 
       // Cancelado no meio do caminho: a nota ja foi criada (fica salva, sem perda), mas nao
@@ -589,6 +616,36 @@ export function Capture() {
     if (opts) await finalize(opts)
   }
 
+  /**
+   * A nota que ja nasceu desta gravacao numa tentativa anterior (transcricao salva, IA falhou).
+   * Com `noteId` gravado na pendencia e direto. Pendencias de antes dessa correcao nao tem o id:
+   * procura uma nota do mesmo usuario criada logo apos o savedAt, com a mesma duracao -- e pega a
+   * mais antiga, que e a primeira que nasceu desta gravacao.
+   */
+  async function findNoteForPending(meta: PendingRecordingMeta): Promise<Note | null> {
+    if (!profile) return null
+    try {
+      if (meta.noteId) {
+        const n = await db.getNote(meta.noteId)
+        return n && !(n as { deleted_at?: string | null }).deleted_at ? n : null
+      }
+      const saved = Date.parse(meta.savedAt)
+      if (!Number.isFinite(saved)) return null
+      const notes = await db.listNotes(profile.id)
+      const candidates = notes.filter((n) => {
+        const created = Date.parse(n.created_at)
+        const within = created >= saved - 60_000 && created <= saved + 20 * 60_000
+        const sameDuration = !meta.duration || Math.abs((n.duration_seconds ?? 0) - meta.duration) <= 2
+        return within && sameDuration && !!n.transcript?.trim()
+      })
+      candidates.sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+      return candidates[0] ?? null
+    } catch (err) {
+      logSilentError('client:Capture.findNoteForPending', err)
+      return null
+    }
+  }
+
   /** Retoma uma gravacao que ficou sem processar numa tentativa anterior (sessao/aba antiga). */
   async function resumePending(key: string) {
     const entry = pendingRecordings.find((p) => p.key === key)
@@ -613,7 +670,9 @@ export function Capture() {
     setContext(meta.context)
     setDiarize(meta.diarize)
     pendingKeyRef.current = key
-    createdNoteRef.current = null
+    // Reaproveita a nota que ja nasceu desta gravacao, se houver. Antes isto era sempre null, e
+    // retomar criava uma nota NOVA com a mesma transcricao (tres copias da Larissa em 16/09).
+    createdNoteRef.current = await findNoteForPending(meta)
     setResumingKey(null)
     await finalize({
       type: meta.type as NoteSourceType,
@@ -995,10 +1054,19 @@ export function Capture() {
                   Transcrever mesmo assim
                 </button>
               )}
-              <button className="btn-outline h-9 px-3 text-sm" onClick={retryFinalize}>
-                Tentar novamente
+              <button
+                className="btn-outline h-9 px-3 text-sm"
+                onClick={retryFinalize}
+                disabled={cooldownLeft > 0}
+              >
+                {cooldownLeft > 0 ? `Tentar novamente em ${formatWait(cooldownLeft)}` : 'Tentar novamente'}
               </button>
             </div>
+          )}
+          {cooldownLeft > 0 && activeCooldown()?.adminOnly && (
+            <p className="text-xs text-content-muted mt-2">
+              Não precisa insistir: sua gravação está salva e você pode concluir assim que o problema for resolvido.
+            </p>
           )}
         </div>
       )}

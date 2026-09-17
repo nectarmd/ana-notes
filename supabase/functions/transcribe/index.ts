@@ -1,32 +1,64 @@
 // Edge Function: transcricao de audio.
-//  - Padrao: Whisper large-v3 (Groq/OpenAI) - barato e rapido.
-//  - Opcional (diarize=true): AssemblyAI com speaker_labels (identifica quem falou).
-//    Requer secret ASSEMBLYAI_API_KEY. Sem a chave, faz fallback para Whisper.
+//  - Padrao: Whisper large-v3 (Groq/OpenAI) - barato e rapido, sincrono.
+//  - AssemblyAI (assincrono: devolve jobId e o cliente acompanha com ?job=<id>) quando:
+//      * o arquivo passa do limite por arquivo do Whisper (25 MB);
+//      * o usuario pediu diarizacao (identificar quem falou);
+//      * o Groq esta em tier gratuito e perto do limite de audio por hora/dia;
+//      * o Groq FALHOU (limite, chave, 5xx, arquivo que ele nao le) -- o AssemblyAI assume e o
+//        administrador e avisado, sem o usuario perder a transcricao.
+//  Todo erro sai por `errorResponse`: mensagem simples ao usuario, codigo + causa ao administrador.
 
 // @ts-nocheck  (ambiente Deno)
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts'
-import { callerId, checkBudget, cors, guardResponse, logAuditServer, logUsage } from '../_shared/guard.ts'
+import {
+  callerId,
+  checkBudget,
+  cors,
+  errorResponse,
+  guardResponse,
+  logUsage,
+  reportIssue,
+} from '../_shared/guard.ts'
+import { classifyWhisper, CodedError } from '../_shared/errors.ts'
 
 const PROVIDER = Deno.env.get('TRANSCRIPTION_PROVIDER') ?? 'groq'
 const ASSEMBLYAI_API_KEY = Deno.env.get('ASSEMBLYAI_API_KEY')
 
 // Limites no SERVIDOR: o cliente ja valida, mas a edge function e chamavel direto.
-// 60 MB cobre uploads externos (m4a/mp3 de outros gravadores); o Groq aceita ate 100 MB
-// no tier pago. O que passa daqui ainda esbarra no MAX_AUDIO_SECONDS de 2 h.
 const MAX_FILE_MB = 60
 const MAX_AUDIO_SECONDS = 2 * 60 * 60 // 2 horas
 
 // Acima disto o Whisper (Groq/OpenAI) recusa com 413 "Request Entity Too Large": o limite por
-// arquivo e 25 MB nos dois. Nao adianta so avisar o usuario -- um .m4a de reuniao de ~50 min ja
-// nasce com 50 MB, e era exatamente esse o caso que voltava (2026-09-02 e 2026-09-10: o mesmo
-// erro, 7 tentativas seguidas). Arquivos assim vao para o AssemblyAI, que aceita ate 5 GB.
+// arquivo e 25 MB nos dois. Um .m4a de reuniao de ~50 min ja nasce com 50 MB (casos de 02/09 e
+// 10/09/2026). Arquivos assim vao para o AssemblyAI, que aceita ate 5 GB.
 const WHISPER_MAX_MB = 24
 
-// USD por SEGUNDO de audio (transcricao nao e cobrada por token).
+// Margem antes do limite do tier gratuito do Groq: desvia para o AssemblyAI ANTES de o Groq
+// comecar a recusar. Em 30 dias com 10 usuarios o pico ja chegou a 112% do limite por hora.
+const GROQ_HOUR_MARGIN = 0.85
+const GROQ_DAY_MARGIN = 0.9
+
+// Preco de TABELA em USD por segundo de audio (o custo REAL depende do modo de cobranca do
+// provedor, gravado por trigger em api_usage). AssemblyAI conferido em assemblyai.com/pricing em
+// 17/09/2026: US$ 0,21/h, +US$ 0,02/h com diarizacao (antes o codigo usava US$ 0,37/h).
 const PRICE_PER_SEC: Record<string, number> = {
   groq: 0.111 / 3600, // whisper-large-v3
   openai: 0.006 / 60, // whisper-1
-  assemblyai: 0.37 / 3600, // com speaker labels
+  assemblyai: 0.21 / 3600,
+  assemblyai_diarize: 0.02 / 3600,
+}
+
+const json = (obj: unknown, status = 200) =>
+  new Response(JSON.stringify(obj), { status, headers: { ...cors, 'content-type': 'application/json' } })
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+class WhisperError extends CodedError {
+  fallback: boolean
+  constructor(code: string, technical: string, fallback: boolean) {
+    super(code, technical)
+    this.fallback = fallback
+  }
 }
 
 async function whisperOnce(file: File): Promise<{ text: string; seconds: number }> {
@@ -43,30 +75,23 @@ async function whisperOnce(file: File): Promise<{ text: string; seconds: number 
   // verbose_json traz `duration` (segundos), que e como a transcricao e cobrada.
   form.append('response_format', 'verbose_json')
   const res = await fetch(endpoint, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: form })
-  if (!res.ok) throw new Error(`${PROVIDER} ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    const body = await res.text()
+    const { code, fallback } = classifyWhisper(res.status, body)
+    const err = new WhisperError(code, `${PROVIDER} ${res.status}: ${body.slice(0, 800)}`, fallback)
+    ;(err as { retryable?: boolean }).retryable = classifyWhisper(res.status, body).retryable
+    throw err
+  }
   const data = await res.json()
   return { text: data.text ?? '', seconds: Math.round(Number(data.duration) || 0) }
 }
 
 /**
- * Achado investigando uma nota do usuario: um audio de 25min voltou com texto vazio (200 OK,
- * sem erro), e o MESMO arquivo, reenviado depois pelo mesmo codigo, transcreveu perfeitamente
- * (22 mil caracteres). Ou seja, o provedor as vezes devolve sucesso com texto vazio de forma
- * transitoria -- nao e o audio que esta ruim. Para audio com duracao real, isso quase certamente
- * NAO e silencio de verdade (quem chega aqui ja passou pelo filtro de audio silencioso no
- * cliente); tenta de novo antes de desistir.
+ * Com novas tentativas. Dois tipos de falha transitoria justificam reenviar o MESMO arquivo:
+ *  - erro do provedor retryable (5xx, "could not process file" em audio que o navegador le);
+ *  - 200 OK com texto VAZIO para audio com duracao real: ja aconteceu com um audio de 25 min que,
+ *    reenviado, transcreveu 22 mil caracteres. Nao e o audio que esta ruim.
  */
-/**
- * Falhas do PROVEDOR que valem reenviar o mesmo arquivo. "could not process file" entra aqui
- * porque ja apareceu em gravacoes que o proprio navegador decodifica sem problema (o cliente so
- * chega ate aqui depois de passar pelo filtro de audio silencioso, que DECODIFICA o blob). Sob
- * carga o provedor tambem devolve 5xx e 429. Reenviar custa pouco perto de perder uma reuniao.
- */
-function isRetriableProviderError(err: unknown): boolean {
-  const m = err instanceof Error ? err.message : String(err)
-  return /could not process file/i.test(m) || /\s5\d\d:\s/.test(m) || /\s429:\s/.test(m)
-}
-
 async function whisper(file: File): Promise<{ text: string; seconds: number }> {
   const MIN_SECONDS_TO_EXPECT_TEXT = 3
   const MAX_ATTEMPTS = 3
@@ -77,84 +102,63 @@ async function whisper(file: File): Promise<{ text: string; seconds: number }> {
       last = result
       if (result.text.trim() || result.seconds < MIN_SECONDS_TO_EXPECT_TEXT) return result
     } catch (err) {
-      // Antes, QUALQUER erro aqui matava a transcricao na primeira tentativa -- inclusive os
-      // transitorios, que o bloco de texto-vazio acima ja tratava havia tempos. Uma reuniao de
-      // 30 min da Aline (31/08) se perdeu exatamente assim, num unico "could not process file".
-      if (!isRetriableProviderError(err) || attempt === MAX_ATTEMPTS) throw err
+      const retryable = (err as { retryable?: boolean }).retryable === true
+      if (!retryable || attempt === MAX_ATTEMPTS) throw err
     }
-    if (attempt < MAX_ATTEMPTS) await new Promise((r) => setTimeout(r, 1500 * attempt))
+    if (attempt < MAX_ATTEMPTS) await sleep(1500 * attempt)
   }
   return last!
 }
 
 /**
- * Manda o arquivo pro AssemblyAI e devolve o ID do trabalho, SEM esperar terminar.
- * Separado do poll de proposito: um audio de ~1 h nao termina dentro do tempo de UMA requisicao
- * de edge function, entao quem chama decide se espera (arquivo pequeno) ou se devolve o ID pro
- * cliente acompanhar (arquivo grande).
+ * Manda o arquivo pro AssemblyAI e devolve o ID do trabalho, SEM esperar terminar: um audio de
+ * ~1 h nao termina dentro do tempo de uma requisicao de edge function.
  */
 async function assemblyStart(file: File, diarize: boolean): Promise<string | null> {
   if (!ASSEMBLYAI_API_KEY) return null
-  const up = await fetch('https://api.assemblyai.com/v2/upload', {
-    method: 'POST',
-    headers: { authorization: ASSEMBLYAI_API_KEY },
-    body: await file.arrayBuffer(),
-  })
-  if (!up.ok) return null
-  const { upload_url } = await up.json()
+  try {
+    const up = await fetch('https://api.assemblyai.com/v2/upload', {
+      method: 'POST',
+      headers: { authorization: ASSEMBLYAI_API_KEY },
+      body: await file.arrayBuffer(),
+    })
+    if (!up.ok) return null
+    const { upload_url } = await up.json()
 
-  const tr = await fetch('https://api.assemblyai.com/v2/transcript', {
-    method: 'POST',
-    headers: { authorization: ASSEMBLYAI_API_KEY, 'content-type': 'application/json' },
-    body: JSON.stringify({ audio_url: upload_url, speaker_labels: diarize, language_code: 'pt' }),
-  })
-  if (!tr.ok) return null
-  const { id } = await tr.json()
-  return id ?? null
+    const tr = await fetch('https://api.assemblyai.com/v2/transcript', {
+      method: 'POST',
+      headers: { authorization: ASSEMBLYAI_API_KEY, 'content-type': 'application/json' },
+      body: JSON.stringify({ audio_url: upload_url, speaker_labels: diarize, language_code: 'pt' }),
+    })
+    if (!tr.ok) return null
+    const { id } = await tr.json()
+    return id ?? null
+  } catch {
+    return null
+  }
 }
 
-/** Le o estado de um trabalho do AssemblyAI (uma consulta, sem laco). */
 async function assemblyFetch(id: string): Promise<Record<string, unknown> | null> {
   if (!ASSEMBLYAI_API_KEY) return null
-  const p = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
-    headers: { authorization: ASSEMBLYAI_API_KEY },
-  })
-  if (!p.ok) return null
-  return await p.json()
+  try {
+    const p = await fetch(`https://api.assemblyai.com/v2/transcript/${encodeURIComponent(id)}`, {
+      headers: { authorization: ASSEMBLYAI_API_KEY },
+    })
+    if (!p.ok) return null
+    return await p.json()
+  } catch {
+    return null
+  }
 }
 
-/**
- * Texto final de um trabalho concluido.
- * BUG corrigido no passado: antes devolvia a STRING crua, mas o chamador le `result.text` --
- * vinha undefined e a nota saia com transcript undefined ("transcricao vazia" / crash no
- * cliente). Sempre devolver o objeto.
- */
+/** Texto final: com diarizacao vira "Falante A: ...", uma fala por linha. */
 function assemblyResult(data: Record<string, unknown>): { text: string; seconds: number } {
   const utterances = data.utterances as Array<{ speaker: string; text: string }> | undefined
   const text =
     Array.isArray(utterances) && utterances.length
       ? utterances.map((u) => `Falante ${u.speaker}: ${u.text}`).join('\n')
-      : ((data.text as string) ?? '')
+      : String(data.text ?? '')
   return { text, seconds: Math.round(Number(data.audio_duration) || 0) }
-}
-
-async function assemblyDiarize(file: File): Promise<{ text: string; seconds: number } | null> {
-  const id = await assemblyStart(file, true)
-  if (!id) return null
-
-  // poll (limite de ~140s; audios muito longos podem exceder -- por isso arquivo grande usa o
-  // caminho assincrono, que devolve o ID em vez de esperar aqui)
-  const start = Date.now()
-  while (Date.now() - start < 140000) {
-    await new Promise((r) => setTimeout(r, 3000))
-    const data = await assemblyFetch(id)
-    if (!data) continue
-    if (data.status === 'completed') {
-      return assemblyResult(data)
-    }
-    if (data.status === 'error') return null
-  }
-  return null // timeout -> fallback
 }
 
 Deno.serve(async (req) => {
@@ -162,193 +166,124 @@ Deno.serve(async (req) => {
   let userId: string | null = null
   try {
     userId = await callerId(req)
-    const guard = await checkBudget(userId)
-    if (!guard.ok) return guardResponse(guard)
 
-    // Consulta de um trabalho JA em andamento (arquivo grande, no AssemblyAI). O cliente chama
-    // com ?job=<id> de tempos em tempos ate ficar pronto. E assim que um audio de ~1 h consegue
-    // terminar: nenhuma requisicao fica aberta esperando, entao o limite de tempo da edge
-    // function deixa de ser o teto da duracao do audio.
+    // ------------------------------------------------------------------ consulta de trabalho
+    // Nao passa pelo freio: o gasto ja foi autorizado quando o trabalho comecou. Acompanhar um
+    // trabalho em andamento nunca pode ser barrado por "limite" -- perderia a transcricao paga.
     const jobId = new URL(req.url).searchParams.get('job')
     if (jobId) {
+      if (!userId) return errorResponse('AUTH_SESSION_INVALID', { source: 'edge:transcribe' })
       const data = await assemblyFetch(jobId)
       if (!data) {
-        return new Response(JSON.stringify({ error: 'Não foi possível consultar a transcrição.' }), {
-          status: 502,
-          headers: { ...cors, 'content-type': 'application/json' },
-        })
+        return errorResponse('TRANSCRIBE_JOB_UNREACHABLE', { source: 'edge:transcribe', userId, detail: { jobId } })
       }
       if (data.status === 'error') {
-        await logAuditServer({
-          severity: 'warning',
-          category: 'user',
+        return errorResponse('TRANSCRIBE_JOB_FAILED', {
           source: 'edge:transcribe',
-          message: `AssemblyAI falhou: ${String(data.error ?? '').slice(0, 300)}`,
-          user_id: userId,
-        })
-        return new Response(
-          JSON.stringify({ error: 'Não conseguimos transcrever este áudio. Tente outro arquivo ou formato.' }),
-          { status: 422, headers: { ...cors, 'content-type': 'application/json' } },
-        )
-      }
-      if (data.status !== 'completed') {
-        return new Response(JSON.stringify({ status: 'processing' }), {
-          headers: { ...cors, 'content-type': 'application/json' },
+          userId,
+          technical: `AssemblyAI: ${String(data.error ?? '').slice(0, 400)}`,
+          detail: { jobId },
         })
       }
+      if (data.status !== 'completed') return json({ status: 'processing' })
+
       const done = assemblyResult(data)
+      const diarized = data.speaker_labels === true
       // Cobranca so aqui: e neste ponto que o audio foi realmente processado.
       await logUsage({
         user_id: userId,
         provider: 'assemblyai',
-        model: 'best',
+        model: diarized ? 'best+speaker_labels' : 'best',
         task: 'transcription',
         audio_seconds: done.seconds,
-        cost_usd: done.seconds * (PRICE_PER_SEC.assemblyai ?? 0),
+        cost_usd: done.seconds * (PRICE_PER_SEC.assemblyai + (diarized ? PRICE_PER_SEC.assemblyai_diarize : 0)),
       })
-      return new Response(JSON.stringify({ transcript: done.text, language: 'pt-BR' }), {
-        headers: { ...cors, 'content-type': 'application/json' },
-      })
+      if (done.seconds > MAX_AUDIO_SECONDS) {
+        return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: done.seconds } })
+      }
+      return json({ transcript: done.text, language: 'pt-BR', provider: 'assemblyai' })
     }
+
+    // ------------------------------------------------------------------ nova transcricao
+    const guard = await checkBudget(userId, { kind: 'transcription', countsAsNote: true })
+    if (!guard.ok) return guardResponse(guard, 'edge:transcribe', userId)
+    const g = guard.guard!
 
     const inForm = await req.formData()
     const file = inForm.get('file') as File
-    if (!file) throw new Error('Arquivo de audio ausente.')
+    if (!file) return errorResponse('TRANSCRIBE_FILE_MISSING', { source: 'edge:transcribe', userId })
     if (file.size > MAX_FILE_MB * 1024 * 1024) {
-      await logAuditServer({
-        severity: 'warning',
-        category: 'user',
-        source: 'edge:transcribe',
-        message: `Arquivo muito grande. Limite de ${MAX_FILE_MB} MB.`,
-        detail: { bytes: file.size },
-        user_id: userId,
-      })
-      return new Response(
-        JSON.stringify({ error: `Arquivo muito grande. Limite de ${MAX_FILE_MB} MB.` }),
-        { status: 413, headers: { ...cors, 'content-type': 'application/json' } },
-      )
+      return errorResponse('TRANSCRIBE_TOO_LARGE', { source: 'edge:transcribe', userId, detail: { bytes: file.size } })
     }
     const diarize = inForm.get('diarize') === 'true'
 
-    // Arquivo acima do limite do Whisper: mandar pra la so devolveria 413. Vai pro AssemblyAI e
-    // devolve o ID pro cliente acompanhar, em vez de esperar aqui (audio longo nao termina
-    // dentro de uma requisicao). Este e o caso do .m4a de reuniao: ~50 MB para ~54 min.
-    if (file.size > WHISPER_MAX_MB * 1024 * 1024) {
+    const tooBigForWhisper = file.size > WHISPER_MAX_MB * 1024 * 1024
+    const limits = (g.provider_limits?.groq ?? {}) as Record<string, number>
+    const groqIsFree = PROVIDER === 'groq' && g.provider_billing?.groq === 'free'
+    const groqNearLimit =
+      groqIsFree &&
+      ((Number(limits.audio_seconds_hour) > 0 &&
+        Number(g.groq_audio_seconds_last_hour) >= Number(limits.audio_seconds_hour) * GROQ_HOUR_MARGIN) ||
+        (Number(limits.audio_seconds_day) > 0 &&
+          Number(g.groq_audio_seconds_today) >= Number(limits.audio_seconds_day) * GROQ_DAY_MARGIN))
+
+    const route = tooBigForWhisper ? 'size' : diarize ? 'diarize' : groqNearLimit ? 'groq_limit' : null
+    if (route && ASSEMBLYAI_API_KEY) {
       const id = await assemblyStart(file, diarize)
-      if (id) {
-        return new Response(JSON.stringify({ jobId: id }), {
-          status: 202,
-          headers: { ...cors, 'content-type': 'application/json' },
-        })
-      }
-      // Sem ASSEMBLYAI_API_KEY (ou o upload falhou): segue pro Whisper mesmo assim. Ele deve
-      // recusar com 413, e o catch la embaixo traduz para a mensagem de "muito grande" --
-      // continua sendo um erro claro, nunca um erro cru.
-      await logAuditServer({
-        severity: 'warning',
-        category: 'system',
+      if (id) return json({ jobId: id, provider: 'assemblyai', route }, 202)
+      // Upload pro AssemblyAI falhou: tenta o Whisper mesmo assim. Se o arquivo for grande, o
+      // Whisper recusa e o catch devolve a mensagem certa.
+      await reportIssue('TRANSCRIBE_PROVIDER_ERROR', {
         source: 'edge:transcribe',
-        message: 'Arquivo grande sem caminho AssemblyAI disponivel; tentando Whisper mesmo assim.',
+        userId,
+        technical: `Upload/criacao do trabalho no AssemblyAI falhou (rota ${route}); tentando Whisper.`,
         detail: { bytes: file.size },
-        user_id: userId,
       })
     }
 
-    let result: { text: string; seconds: number } | null = null
-    let provider = PROVIDER
-    let model = PROVIDER === 'openai' ? 'whisper-1' : 'whisper-large-v3'
-
-    if (diarize) {
-      result = await assemblyDiarize(file)
-      if (result) {
-        provider = 'assemblyai'
-        model = 'best+speaker_labels'
+    let result: { text: string; seconds: number }
+    try {
+      result = await whisper(file)
+    } catch (err) {
+      // O Whisper falhou de um jeito que o AssemblyAI pode contornar: o usuario nao perde a
+      // transcricao, e o administrador fica sabendo que o provedor principal falhou.
+      if (err instanceof WhisperError && err.fallback && ASSEMBLYAI_API_KEY) {
+        const id = await assemblyStart(file, diarize)
+        if (id) {
+          await reportIssue(err.code, {
+            source: 'edge:transcribe',
+            userId,
+            technical: `${err.technical} | contornado: enviado ao AssemblyAI (job ${id})`,
+            detail: { bytes: file.size, fallbackJob: id },
+          })
+          return json({ jobId: id, provider: 'assemblyai', route: 'fallback' }, 202)
+        }
       }
+      throw err
     }
-    if (result === null) result = await whisper(file) // fallback ou modo padrao
 
     await logUsage({
       user_id: userId,
-      provider,
-      model,
+      provider: PROVIDER,
+      model: PROVIDER === 'openai' ? 'whisper-1' : 'whisper-large-v3',
       task: 'transcription',
       audio_seconds: result.seconds,
-      cost_usd: result.seconds * (PRICE_PER_SEC[provider] ?? 0),
+      cost_usd: result.seconds * (PRICE_PER_SEC[PROVIDER] ?? 0),
     })
 
     if (result.seconds > MAX_AUDIO_SECONDS) {
-      await logAuditServer({
-        severity: 'warning',
-        category: 'user',
-        source: 'edge:transcribe',
-        message: 'Audio acima do limite de 2 horas.',
-        detail: { seconds: result.seconds },
-        user_id: userId,
-      })
-      return new Response(
-        JSON.stringify({ error: 'Audio acima do limite de 2 horas.' }),
-        { status: 413, headers: { ...cors, 'content-type': 'application/json' } },
-      )
+      return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: result.seconds } })
     }
 
-    return new Response(JSON.stringify({ transcript: result.text, language: 'pt-BR' }), {
-      headers: { ...cors, 'content-type': 'application/json' },
-    })
+    return json({ transcript: result.text, language: 'pt-BR', provider: PROVIDER })
   } catch (err) {
-    const raw = String(err)
-    // Provedor recusou pelo TAMANHO: o Groq aceita 25 MB por arquivo no tier gratuito e
-    // 100 MB no pago -- MENOS que o MAX_FILE_MB daqui (60 MB), entao um arquivo pode passar
-    // pela nossa barreira e morrer la. Sem este mapeamento o erro cru caia no fallback
-    // generico "Falha ao processar. Tente novamente." sem dizer a causa (caso real:
-    // m4a/3gp de 49 MB e 53 min, 2026-09-02). "muito grande" na mensagem casa com o
-    // FRIENDLY do cliente (aiError) e evita log duplicado (ALREADY_LOGGED_SERVER).
-    const tooLarge = /too large|entity too large|content size|file size|exceeds.*(size|limit)|\s413:\s/i.test(raw)
-    if (tooLarge) {
-      await logAuditServer({
-        severity: 'warning',
-        category: 'user',
-        source: 'edge:transcribe',
-        message: `Audio muito grande para o provedor: ${raw.slice(0, 300)}`,
-        user_id: userId,
-      })
-      return new Response(
-        JSON.stringify({
-          error:
-            'Este áudio é muito grande para o provedor de transcrição no plano atual. Comprima o arquivo (ex.: converta para MP3) ou fale com o administrador.',
-        }),
-        { status: 413, headers: { ...cors, 'content-type': 'application/json' } },
-      )
+    if (err instanceof CodedError) {
+      return errorResponse(err.code, { source: 'edge:transcribe', userId, technical: err.technical })
     }
-    // Provedor recusou o arquivo (formato/container que ele nao le, ou audio corrompido/vazio).
-    // Devolve uma mensagem clara em vez do "groq 400: {...}" cru -- e marca como 'warning'/'user'
-    // (e conteudo do usuario, nao uma falha do sistema).
-    const invalidMedia = /could not process file|valid media file|invalid.*file|unsupported/i.test(raw)
-    if (invalidMedia) {
-      await logAuditServer({
-        severity: 'warning',
-        category: 'user',
-        source: 'edge:transcribe',
-        message: `Audio nao pode ser lido pelo provedor: ${raw.slice(0, 300)}`,
-        user_id: userId,
-      })
-      return new Response(
-        JSON.stringify({
-          error:
-            'Não conseguimos ler este áudio. Grave novamente (evite pausar/retomar em excesso) ou, se enviou um arquivo, tente outro formato (MP3, M4A, WAV, WEBM).',
-        }),
-        { status: 422, headers: { ...cors, 'content-type': 'application/json' } },
-      )
-    }
-    await logAuditServer({
-      severity: 'error',
-      category: 'system',
+    return errorResponse('UNEXPECTED', {
       source: 'edge:transcribe',
-      message: raw.slice(0, 500),
-      user_id: userId,
-    })
-    return new Response(JSON.stringify({ error: raw }), {
-      status: 500,
-      headers: { ...cors, 'content-type': 'application/json' },
+      userId,
+      technical: `${String(err)}${err instanceof Error && err.stack ? ` | ${err.stack.slice(0, 600)}` : ''}`,
     })
   }
 })

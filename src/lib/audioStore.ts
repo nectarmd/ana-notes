@@ -138,6 +138,12 @@ export interface PendingRecordingMeta {
   skipAudioStore: boolean
   skipActionItems: boolean
   savedAt: string
+  /**
+   * Nota ja criada para esta gravacao (a transcricao deu certo, a IA falhou depois). Sem isto,
+   * retomar a pendencia criava OUTRA nota com a mesma transcricao: a Larissa ficou com tres notas
+   * identicas em 16/09/2026 quando os creditos da Anthropic acabaram.
+   */
+  noteId?: string
 }
 
 const PENDING_META_KEY = 'tailor.pendingRecordings'
@@ -162,6 +168,14 @@ export async function savePendingRecording(key: string, blob: Blob, meta: Pendin
   await idbPut(PENDING_PREFIX + key, blob)
   const list = readPendingMetaList()
   list[key] = meta
+  writePendingMetaList(list)
+}
+
+/** Liga a pendencia a nota recem-criada (ver PendingRecordingMeta.noteId). */
+export function setPendingRecordingNote(key: string, noteId: string): void {
+  const list = readPendingMetaList()
+  if (!list[key]) return
+  list[key] = { ...list[key], noteId }
   writePendingMetaList(list)
 }
 

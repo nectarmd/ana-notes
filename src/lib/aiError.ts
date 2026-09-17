@@ -1,5 +1,6 @@
 import { logClientError } from './auditLog'
 import { describeUnknownError } from './errorMessage'
+import { isAppError, registerCooldown } from './appError'
 
 /**
  * As edge functions devolvem `{ error: "..." }` com mensagem pronta quando barram a chamada
@@ -72,6 +73,14 @@ const NETWORK = [
  * sem bloquear o retorno.
  */
 export function aiError(err: unknown, fallback: string): string {
+  // Erro com codigo do servidor (catalogo em _shared/errors.ts): a mensagem ja e a amigavel, e o
+  // servidor ja gravou o log com a causa tecnica -- logar aqui so duplicaria a linha. So resta
+  // aplicar o cooldown quando o problema e do administrador ou um limite de uso.
+  if (isAppError(err)) {
+    registerCooldown(err)
+    return err.message
+  }
+
   const msg = describeUnknownError(err)
   if (!msg) return fallback
 
@@ -81,6 +90,7 @@ export function aiError(err: unknown, fallback: string): string {
       severity: 'warning',
       category: 'silent',
       source: 'client:aiError',
+      code: 'NETWORK',
       message: `Falha de rede: ${msg}`,
     })
     return 'Sem conexão com o servidor agora. Verifique sua internet e tente novamente.'
@@ -94,9 +104,12 @@ export function aiError(err: unknown, fallback: string): string {
       severity: matched ? 'warning' : 'error',
       category: matched ? 'user' : 'system',
       source: 'client:aiError',
+      code: matched ? 'CLIENT_LEGACY_MESSAGE' : 'CLIENT_UNEXPECTED',
       message: msg,
       detail: err instanceof Error ? { stack: err.stack?.slice(0, 2000) } : undefined,
     })
   }
+  // Mensagem crua do servidor/provedor NUNCA vai para o usuario (ja apareceu
+  // `Anthropic 400: {"type":"error"...}` na tela). So as frases conhecidas passam.
   return matched ? msg : fallback
 }
