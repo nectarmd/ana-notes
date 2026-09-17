@@ -10,4 +10,4 @@ export const APP_NAME = 'ANA by Tailor'
  * em instaladores antigos), o site mostra o aviso "atualizacao disponivel". Bump aqui SO ao
  * publicar um instalador novo. Sem prefixo "v".
  */
-export const LATEST_WINDOWS_BUILD = '0.19.5'
+export const LATEST_WINDOWS_BUILD = '0.20.0'
