@@ -354,21 +354,148 @@ if (!gotSingleInstanceLock) {
    * a bandeja e libera o atalho global -- nada segurando o processo. Com o instalador oneClick, ele
    * fecha qualquer resto e instala em silencio (sem o dialogo "nao e possivel fechar").
    */
+  /**
+   * Janela "Atualizando o ANA..." que SOBREVIVE ao app fechar (17/09/2026).
+   *
+   * Relato real: ao clicar em "Reiniciar e atualizar" o app sumia e nada aparecia por ~2 minutos
+   * (log: fechou 01:08:19, reabriu 01:10:17). A notificacao do Windows nao aparecia e o usuario
+   * achava que tinha de clicar no icone de novo -- no meio da instalacao. Nenhuma janela do proprio
+   * Electron serve (o processo precisa morrer para o instalador trocar os arquivos), entao a janela
+   * e um PowerShell com Windows Forms, que existe em todo Windows. Ela fica na tela enquanto o
+   * instalador roda e fecha sozinha quando um processo NOVO do ANA aparece. Se o PowerShell estiver
+   * bloqueado por politica, simplesmente nao aparece -- o comportamento volta a ser o de antes.
+   */
+  const SPLASH_SCRIPT = String.raw`
+$ErrorActionPreference = 'SilentlyContinue'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$started = Get-Date
+$appName = $env:ANA_EXE_NAME
+$old = @(Get-Process -Name $appName | ForEach-Object { $_.Id })
+$form = New-Object System.Windows.Forms.Form
+$form.Text = 'ANA by Tailor'
+$form.FormBorderStyle = 'FixedDialog'
+$form.MaximizeBox = $false
+$form.StartPosition = 'CenterScreen'
+$form.TopMost = $true
+$form.BackColor = [System.Drawing.Color]::White
+$form.ClientSize = New-Object System.Drawing.Size(460, 176)
+if ($env:ANA_ICON -and (Test-Path -LiteralPath $env:ANA_ICON)) { $form.Icon = New-Object System.Drawing.Icon($env:ANA_ICON) }
+$accent = New-Object System.Windows.Forms.Panel
+$accent.BackColor = [System.Drawing.Color]::FromArgb(200, 16, 46)
+$accent.SetBounds(0, 0, 460, 5)
+$title = New-Object System.Windows.Forms.Label
+$title.Text = $env:ANA_T1
+$title.Font = New-Object System.Drawing.Font('Segoe UI Semibold', 13)
+$title.SetBounds(24, 22, 412, 30)
+$body = New-Object System.Windows.Forms.Label
+$body.Text = $env:ANA_T2
+$body.Font = New-Object System.Drawing.Font('Segoe UI', 9.75)
+$body.ForeColor = [System.Drawing.Color]::FromArgb(70, 70, 70)
+$body.SetBounds(24, 56, 412, 62)
+$bar = New-Object System.Windows.Forms.ProgressBar
+$bar.Style = 'Marquee'
+$bar.MarqueeAnimationSpeed = 30
+$bar.SetBounds(24, 130, 412, 14)
+$form.Controls.AddRange(@($accent, $title, $body, $bar))
+$script:doneAt = $null
+$script:installerSeen = $false
+$script:installerGoneAt = $null
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 1000
+$timer.Add_Tick({
+  $elapsed = ((Get-Date) - $started).TotalSeconds
+  if (Get-Process -Name 'ANA-by-Tailor-Setup*') { $script:installerSeen = $true; $script:installerGoneAt = $null }
+  elseif ($script:installerSeen -and -not $script:installerGoneAt) { $script:installerGoneAt = Get-Date }
+  $fresh = @(Get-Process -Name $appName | Where-Object { $old -notcontains $_.Id })
+  if ($script:doneAt) {
+    if (((Get-Date) - $script:doneAt).TotalSeconds -ge 3) { $timer.Stop(); $form.Close() }
+  } elseif ($fresh.Count -gt 0 -and $elapsed -gt 5) {
+    $script:doneAt = Get-Date
+    $title.Text = $env:ANA_T3
+    $body.Text = $env:ANA_T4
+    $bar.Style = 'Continuous'
+    $bar.Value = 100
+  } elseif (($script:installerGoneAt -and ((Get-Date) - $script:installerGoneAt).TotalSeconds -gt 25) -or $elapsed -gt 300) {
+    $timer.Stop()
+    $title.Text = $env:ANA_T5
+    $body.Text = $env:ANA_T6
+    $bar.Style = 'Continuous'
+    $bar.Value = 0
+  }
+})
+$form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_READY_FILE -Value 'ok' }; $timer.Start() })
+[void]$form.ShowDialog()
+`
+
+  /** Abre a janela de progresso e espera ela aparecer (no maximo ~4 s). true = ficou visivel. */
+  async function showUpdateSplash(notice) {
+    if (process.platform !== 'win32') return false
+    try {
+      const tmp = app.getPath('temp')
+      const ready = path.join(tmp, `ana-update-splash-${Date.now()}.ok`)
+      let iconCopy = ''
+      try {
+        iconCopy = path.join(tmp, 'ana-update-icon.ico')
+        fs.writeFileSync(iconCopy, fs.readFileSync(ICON_PATH))
+      } catch {
+        iconCopy = ''
+      }
+      const n = notice || {}
+      const env = {
+        ...process.env,
+        ANA_EXE_NAME: path.basename(process.execPath, '.exe'),
+        ANA_ICON: iconCopy,
+        ANA_READY_FILE: ready,
+        ANA_T1: n.title || 'Atualizando o ANA...',
+        ANA_T2: n.body || 'Isso leva cerca de 1 a 2 minutos. O ANA abre sozinho quando terminar: não precisa clicar no ícone.',
+        ANA_T3: n.doneTitle || 'Pronto!',
+        ANA_T4: n.doneBody || 'O ANA atualizado já está abrindo.',
+        ANA_T5: n.slowTitle || 'Está demorando mais que o normal',
+        ANA_T6: n.slowBody || 'Se o ANA não abrir em instantes, abra pelo ícone na área de trabalho ou no menu Iniciar.',
+      }
+      delete env.ELECTRON_RUN_AS_NODE
+      const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+      const child = spawn(
+        ps,
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', Buffer.from(SPLASH_SCRIPT, 'utf16le').toString('base64')],
+        { detached: true, stdio: 'ignore', windowsHide: true, env },
+      )
+      child.on('error', (err) => log.warn('janela de atualizacao nao abriu:', err))
+      child.unref()
+      const t0 = Date.now()
+      while (Date.now() - t0 < 4000) {
+        if (fs.existsSync(ready)) {
+          log.info(`janela de atualizacao visivel em ${Date.now() - t0} ms`)
+          try {
+            fs.unlinkSync(ready)
+          } catch {}
+          return true
+        }
+        await new Promise((r) => setTimeout(r, 100))
+      }
+      log.warn('janela de atualizacao nao confirmou em 4 s; seguindo com a instalacao')
+    } catch (err) {
+      log.warn('falha ao abrir a janela de atualizacao:', err)
+    }
+    return false
+  }
+
   let installing = false
-  function installUpdateNow(notice) {
+  async function installUpdateNow(notice) {
     if (installing) return
     installing = true
-    // A instalacao roda em silencio de proposito (ver o quitAndInstall mais abaixo), e com o app
-    // encerrado nenhuma janela nossa sobrevive pra mostrar progresso. A notificacao do Windows e
-    // a unica coisa que continua visivel nesse intervalo: sem ela o usuario ve o ANA fechar
-    // sozinho e sumir por ~20s, o que parece defeito. Os textos vem do site ja traduzidos.
+    const splashShown = await showUpdateSplash(notice)
+    // Plano B, so se a janela de progresso nao abriu: notificacao do Windows. Na pratica ela nem
+    // sempre aparece (Assistente de foco, notificacoes do app desligadas), por isso virou reserva.
     try {
-      if (Notification.isSupported()) {
+      if (!splashShown && Notification.isSupported()) {
         new Notification({
           title: (notice && notice.title) || 'Atualizando o ANA...',
           body:
             (notice && notice.body) ||
-            'A janela vai fechar e reabrir sozinha em alguns segundos. E normal -- nao precisa fazer nada.',
+            'Isso leva cerca de 1 a 2 minutos. O ANA abre sozinho quando terminar: não precisa clicar no ícone.',
         }).show()
       }
     } catch (err) {

@@ -51,7 +51,14 @@ export interface AnaElectronBridge {
   onUpdateStatus: (cb: (payload: AnaUpdateStatus) => void) => () => void
   /** Instala agora a atualizacao ja baixada e reabre o app. `undefined` em instaladores antigos
    *  (capability-gated) -- nesse caso o aviso cai no fallback de baixar por link. */
-  quitAndInstall?: (notice?: { title: string; body: string }) => void
+  quitAndInstall?: (notice?: {
+    title: string
+    body: string
+    doneTitle?: string
+    doneBody?: string
+    slowTitle?: string
+    slowBody?: string
+  }) => void
   /** Pede ao processo principal que reconecte o audio do sistema (loopback) apos o Windows
    *  trocar o aparelho de saida. Precisa passar pelo main porque getDisplayMedia exige uma
    *  ativacao transitoria, e so ele consegue simular o gesto. `undefined` em instaladores

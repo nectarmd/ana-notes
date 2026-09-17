@@ -47,6 +47,8 @@ export function UpdateBanner() {
   const [percent, setPercent] = useState<number | null>(null)
   /** Instalando: a janela vai sumir em instantes e o usuario precisa saber disso. */
   const [installing, setInstalling] = useState(false)
+  /** Segundos ate o app fechar para instalar (o aviso precisa ficar legivel antes de sumir). */
+  const [countdown, setCountdown] = useState<number | null>(null)
 
   // Depois de atualizar, o app so "sumiu e voltou": nada confirma que deu certo. Comparar a
   // versao instalada com a ultima que este aparelho viu fecha esse ciclo com um aviso curto.
@@ -73,6 +75,23 @@ export function UpdateBanner() {
     })
   }, [])
 
+  // Contagem antes de fechar para instalar (fica ANTES dos returns: regra dos hooks).
+  useEffect(() => {
+    if (countdown === null) return
+    if (countdown > 0) {
+      const id = setTimeout(() => setCountdown(countdown - 1), 1000)
+      return () => clearTimeout(id)
+    }
+    window.anaElectron!.quitAndInstall!({
+      title: t('update.installing.title'),
+      body: t('update.splash.body'),
+      doneTitle: t('update.splash.doneTitle'),
+      doneBody: t('update.splash.doneBody'),
+      slowTitle: t('update.splash.slowTitle'),
+      slowBody: t('update.splash.slowBody'),
+    })
+  }, [countdown, t])
+
   if (!isElectron() || dismissed) return null
 
   const installed = window.anaElectron!.appVersion
@@ -95,15 +114,13 @@ export function UpdateBanner() {
 
   function restart() {
     // O instalador roda em SILENCIO de proposito (ver main.cjs: o modo visivel traz de volta a
-    // tela "arquivo em uso / Repetir" que a v0.18.26 matou). Sem este aviso o usuario so ve o
-    // app fechar sozinho e some tudo -- parece que quebrou. Mostramos o que esta acontecendo
-    // antes da janela sumir, e mandamos os textos ja traduzidos para a notificacao do Windows,
-    // que sobrevive ao app fechar e cobre o intervalo da instalacao.
+    // tela "arquivo em uso / Repetir" que a v0.18.26 matou). Relato de 17/09/2026: o app sumia e
+    // nada aparecia por ~2 minutos, e parecia preciso clicar no icone de novo. Agora o aviso fica
+    // alguns segundos na tela, com contagem, ANTES de fechar (antes sumia em meio segundo); a
+    // partir do instalador 0.20.2 uma janela propria assume enquanto a instalacao roda.
+    if (installing) return
     setInstalling(true)
-    window.anaElectron!.quitAndInstall!({
-      title: t('update.installing.title'),
-      body: t('update.installing.body'),
-    })
+    setCountdown(4)
   }
 
   function dismiss() {
@@ -127,6 +144,11 @@ export function UpdateBanner() {
               <Loader2 size={32} className="mx-auto text-accent animate-spin" />
               <h2 className="font-display font-semibold text-lg mt-4">{t('update.installing.title')}</h2>
               <p className="text-sm text-content-secondary mt-2">{t('update.installing.body')}</p>
+              {countdown !== null && countdown > 0 && (
+                <p className="text-xs text-content-muted mt-3 tabular-nums">
+                  {t('update.installing.closingIn').replace('{n}', String(countdown))}
+                </p>
+              )}
             </div>
           </div>,
           document.body,

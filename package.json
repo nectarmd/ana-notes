@@ -1,7 +1,7 @@
 {
   "name": "tailor-executive-ai-notes",
   "private": true,
-  "version": "0.20.0",
+  "version": "0.20.2",
   "author": "Tailor Executive",
   "type": "module",
   "description": "Tailor Executive AI Notes - IA de anotacoes e transcricoes de reunioes",
@@ -61,17 +61,32 @@
       "output": "release"
     },
     "files": [
-      "electron/**/*",
-      "!electron/build-icon.mjs",
-      "node_modules/**/*",
+      "electron/main.cjs",
+      "electron/preload.cjs",
       "package.json",
-      "build/icon.ico"
+      "build/icon.ico",
+      "!node_modules/**/*",
+      "node_modules/electron-updater/**/*",
+      "node_modules/electron-log/**/*",
+      "node_modules/builder-util-runtime/**/*",
+      "node_modules/graceful-fs/**/*",
+      "node_modules/jsonfile/**/*",
+      "node_modules/universalify/**/*",
+      "node_modules/js-yaml/**/*",
+      "node_modules/lazy-val/**/*",
+      "node_modules/lodash.escaperegexp/**/*",
+      "node_modules/lodash.isequal/**/*",
+      "node_modules/tiny-typed-emitter/**/*",
+      "node_modules/debug/**/*",
+      "node_modules/ms/**/*"
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "build/icon.ico"
@@ -88,6 +103,12 @@
       "owner": "tailorexec",
       "repo": "tailor-executive-ai-notes",
       "releaseType": "release"
-    }
+    },
+    "electronLanguages": [
+      "pt-BR",
+      "en-US",
+      "es",
+      "es-419"
+    ]
   }
 }

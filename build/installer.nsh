@@ -16,6 +16,8 @@
 !ifndef BUILD_UNINSTALLER
   Var AnaHadDesktopLink
   Var AnaHadMenuLink
+  ; "1" quando a faxina removeu alguma copia antiga: so entao vale varrer atalhos (ver customInstall).
+  Var AnaRemovedCopy
 !endif
 
 ; =============================================================================================
@@ -87,6 +89,7 @@
 
   ana_rm_go_${UID}:
   DetailPrint "Removendo copia antiga do ANA em $R8"
+  StrCpy $AnaRemovedCopy "1"
   StrCmp "${RUNUNINST}" "1" 0 ana_rm_files_${UID}
   IfFileExists "$R8\${UNINSTALL_FILENAME}" 0 ana_rm_files_${UID}
     ; O desinstalador mora DENTRO da pasta que ele vai apagar -> roda a partir de uma copia
@@ -187,6 +190,7 @@
   ;    Como numa atualizacao o template NAO recria atalhos (keepShortcuts), sem esta anotacao o
   ;    usuario ficaria sem icone na area de trabalho depois de atualizar. Recriamos em
   ;    customInstall, e so os que existiam -- quem apagou o atalho de proposito nao ganha de volta.
+  StrCpy $AnaRemovedCopy "0"
   StrCpy $AnaHadDesktopLink "0"
   IfFileExists "$DESKTOP\${SHORTCUT_NAME}.lnk" 0 +2
     StrCpy $AnaHadDesktopLink "1"
@@ -229,6 +233,10 @@
   ;    a usuaria abria a versao velha todo dia. Reapontar (em vez de apagar) preserva a fixacao.
   ;    Se o PowerShell estiver bloqueado por politica, simplesmente nao acontece nada -- os dois
   ;    atalhos principais ja foram garantidos no passo 1, em NSIS puro.
+  ;    So roda quando a faxina removeu alguma copia (17/09/2026): numa atualizacao comum, na mesma
+  ;    pasta, nenhum atalho aponta para lugar errado e a varredura so alongava a instalacao.
+  StrCmp "$AnaRemovedCopy" "1" 0 ana_ci_end
   nsExec::Exec `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$e='$INSTDIR\${APP_EXECUTABLE_FILENAME}'; $$w=New-Object -ComObject WScript.Shell; $$d=@($$env:USERPROFILE+'\Desktop',$$env:PUBLIC+'\Desktop',$$env:APPDATA+'\Microsoft\Windows\Start Menu\Programs',$$env:APPDATA+'\Microsoft\Internet Explorer\Quick Launch',$$env:ProgramData+'\Microsoft\Windows\Start Menu\Programs'); foreach($$p in $$d){ if(Test-Path -LiteralPath $$p){ Get-ChildItem -LiteralPath $$p -Filter *.lnk -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { try { $$s=$$w.CreateShortcut($$_.FullName); if($$s.TargetPath -and ([System.IO.Path]::GetFileName($$s.TargetPath) -eq '${APP_EXECUTABLE_FILENAME}') -and ($$s.TargetPath -ne $$e)){ $$s.TargetPath=$$e; $$s.WorkingDirectory=(Split-Path -Parent $$e); $$s.IconLocation=$$e+',0'; $$s.Save() } } catch {} } } }"`
   Pop $0
+  ana_ci_end:
 !macroend
