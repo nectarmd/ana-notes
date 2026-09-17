@@ -393,28 +393,23 @@ export function Home() {
         <AnnouncementBanner />
       </div>
 
-      {/* Uma faixa so, fina, no lugar dos dois cartoes grandes que ocupavam o topo (retorno do
-          usuario em 17/09/2026): a esquerda a conversa com todas as notas, a direita o proximo
-          compromisso com gravar e ir para a agenda. A agenda completa fica em /agenda. */}
-      <div className="card mb-3 flex flex-col sm:flex-row overflow-hidden">
-        <button
-          onClick={() => setAskOpen(true)}
-          className="flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-elevated sm:flex-1 min-w-0"
-        >
-          <span className="grid place-items-center h-9 w-9 rounded-xl bg-brand-solid text-white shrink-0">
-            <MessageSquare size={18} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block font-medium text-sm leading-tight">{t('home.chatAll')}</span>
-            <span className="block text-xs text-content-muted leading-tight truncate">{t('home.chatAllSub')}</span>
-          </span>
-          <ChevronRight size={18} className="text-content-muted shrink-0" />
-        </button>
-
-        <div className="border-t sm:border-t-0 sm:border-l border-surface-border sm:flex-1 min-w-0">
-          <UpcomingEvents mode="strip" />
-        </div>
-      </div>
+      {/* Faixa fina, sozinha na linha e na largura inteira: conversar com todas as notas. A
+          agenda dividia esta faixa ate 17/09/2026 e ficava apertada -- agora ela e uma secao
+          propria, com os proximos compromissos, logo abaixo das notas. */}
+      <button
+        onClick={() => setAskOpen(true)}
+        className="card mb-3 w-full flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-surface-elevated"
+      >
+        <span className="grid place-items-center h-9 w-9 rounded-xl bg-brand-solid text-white shrink-0">
+          <MessageSquare size={18} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-medium text-sm leading-tight">{t('home.chatAll')}</span>
+          <span className="block text-xs text-content-muted leading-tight truncate">{t('home.chatAllSub')}</span>
+        </span>
+        <span className="hidden sm:block text-xs text-content-muted truncate max-w-[26rem]">{t('home.chatAllHint')}</span>
+        <ChevronRight size={18} className="text-content-muted shrink-0" />
+      </button>
 
       <HomeTip />
 
@@ -614,6 +609,10 @@ export function Home() {
         </ul>
       )}
       </div>
+
+      {/* Agenda: os proximos compromissos ficam DEPOIS das notas -- quem abre o ANA vem ver as
+          notas primeiro, e cada compromisso ja traz gravar e entrar na chamada. */}
+      <UpcomingEvents />
 
       {/* FAB da ANA (MOBILE): no desktop a ANA fica no shell, global e com balao. */}
       <button
