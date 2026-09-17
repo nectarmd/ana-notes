@@ -10,6 +10,7 @@ import { MindMapView } from '../components/MindMapView'
 import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
 import { logClientError, logSilentError } from '../lib/auditLog'
+import { withSpeakerNames } from '../lib/speakers'
 
 /** Pagina do mapa mental de uma nota. Gera na primeira vez e salva; nas proximas abre o salvo. */
 export function MindMapPage() {
@@ -38,7 +39,7 @@ export function MindMapPage() {
     if (generating) return
     setGenerating(true)
     try {
-      const mindmap = await generateMindMap(current.transcript, {
+      const mindmap = await generateMindMap(withSpeakerNames(current).transcript, {
         template: current.template,
         context: current.context,
       })

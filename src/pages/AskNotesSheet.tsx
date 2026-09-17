@@ -6,6 +6,7 @@ import { useT } from '../lib/i18n'
 import { useToast } from '../components/Toast'
 import type { Note } from '../lib/types'
 import { logSilentError } from '../lib/auditLog'
+import { withSpeakerNames } from '../lib/speakers'
 
 export function AskNotesSheet({
   open,
@@ -32,7 +33,7 @@ export function AskNotesSheet({
     try {
       const a = await askAllNotes(
         query,
-        notes.map((n) => ({ title: n.title, created_at: n.created_at, summary: n.summary })),
+        notes.map((n) => ({ title: n.title, created_at: n.created_at, summary: withSpeakerNames(n).summary })),
       )
       setAnswer(a)
     } catch (err) {

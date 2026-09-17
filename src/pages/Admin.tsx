@@ -49,7 +49,7 @@ const TOPIC_LABEL: Record<TicketTopic, string> = {
 
 const META_LABEL: Record<string, string> = {
   site: 'Site',
-  app: 'App Windows',
+  app: 'Instalador Windows',
   device: 'Dispositivo',
   lang: 'Idioma',
 }

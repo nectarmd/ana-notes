@@ -43,7 +43,7 @@ import { RETENTION_CHOICES, RETENTION_DEFAULT, type RetentionDays } from '../lib
 import { friendsEnabled, unreadCount } from '../lib/friends'
 import { NavTag } from '../components/NavTag'
 import { logSilentError } from '../lib/auditLog'
-import { APP_NAME, APP_VERSION, LATEST_WINDOWS_BUILD } from '../lib/version'
+import { APP_NAME, APP_VERSION, isOlderVersion, WINDOWS_REQUIRED_BUILD } from '../lib/version'
 import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
 import { ANDROID_APK_DOWNLOAD_URL } from '../lib/androidApp'
 import { isElectron, type AnaPaths } from '../lib/electron'
@@ -153,6 +153,7 @@ function PathBlock({
  */
 function WindowsAppInfo() {
   const t = useT()
+  const toast = useToast()
   const [paths, setPaths] = useState<AnaPaths | null>(null)
 
   useEffect(() => {
@@ -203,15 +204,30 @@ function WindowsAppInfo() {
           </div>
         )}
 
-        {/* As DUAS versoes, lado a lado e nomeadas: era exatamente a confusao do caso real --
-            o usuario via "v0.19.4" (site) e concluia que o aplicativo estava atualizado. */}
+        {/* Situacao do app, sem um segundo numero de versao. Ate 17/09/2026 apareciam as duas versoes
+            (instalador x site) lado a lado e isso confundia; o que a pessoa precisa saber e se o app
+            do Windows esta em dia. A copia antiga (caso real de 09/2026) segue avisada acima. */}
         <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-content-secondary">{t('winapp.installedVersion')}</span>
-          <span className="font-medium">v{paths.version}</span>
-        </div>
-        <div className="flex items-center justify-between gap-3 text-sm">
-          <span className="text-content-secondary">{t('winapp.siteVersion')}</span>
-          <span className="font-medium">{APP_VERSION}</span>
+          <span className="text-content-secondary">{t('winapp.status')}</span>
+          {isOlderVersion(paths.version, WINDOWS_REQUIRED_BUILD) ? (
+            <button
+              onClick={() => {
+                if (typeof window.anaElectron?.checkForUpdates === 'function') {
+                  window.anaElectron.checkForUpdates()
+                  toast(t('update.checking'))
+                } else {
+                  window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')
+                }
+              }}
+              className="btn-primary h-8 px-3 text-xs"
+            >
+              {t('winapp.needsUpdate')}
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
+              <Check size={15} /> {t('winapp.upToDate')}
+            </span>
+          )}
         </div>
 
         <PathBlock
@@ -324,9 +340,6 @@ export function Settings() {
             estava na versao nova enquanto usava um aplicativo de meses atras. */}
         <span className="text-xs font-medium text-content-muted bg-surface-elevated border border-surface-border rounded-full px-2.5 py-1 shrink-0">
           {APP_VERSION}
-          {isElectron() && window.anaElectron?.appVersion && (
-            <span className="opacity-60"> · app {window.anaElectron.appVersion}</span>
-          )}
         </span>
       </header>
 
@@ -524,7 +537,7 @@ export function Settings() {
           onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
           right={
             <span className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-content-muted">v{LATEST_WINDOWS_BUILD}</span>
+              <span className="text-xs font-medium text-content-muted">{APP_VERSION}</span>
               <ChevronRight size={18} className="text-content-muted" />
             </span>
           }

@@ -32,7 +32,7 @@ export const HELP_KB: HelpEntry[] = [
   },
   {
     q: 'O que é identificar quem falou?',
-    a: 'É uma opção que você liga antes de processar para separar as falas na transcrição (Falante A, Falante B...). Leva um pouco mais de tempo.',
+    a: 'É uma opção que você liga antes de processar para separar as falas na transcrição (Falante A, Falante B...). Quando a própria conversa mostra quem é quem (a pessoa se apresenta, ou é chamada pelo nome e responde), o ANA troca o rótulo pelo nome; sem essa prova, não adivinha. Na aba Transcrição, em "Quem falou", dá para ver a prova de cada nome, procurar de novo e dar ou corrigir nomes à mão. Leva um pouco mais de tempo.',
     keywords: ['quem', 'falou', 'diarizacao', 'falantes', 'separar'],
   },
   {

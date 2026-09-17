@@ -34,7 +34,15 @@ import { SystemAudioHelp } from '../components/SystemAudioHelp'
 import { useToast } from '../components/Toast'
 import { db, config } from '../lib/api'
 import { uid } from '../lib/db'
-import { generateActionItems, generateSummary, generateSummaryAndItems, summarizeImage, transcribeAudio } from '../lib/ai'
+import {
+  generateActionItems,
+  generateSummary,
+  generateSummaryAndItems,
+  identifySpeakers,
+  summarizeImage,
+  transcribeAudio,
+} from '../lib/ai'
+import { hasSpeakers, mergeAutoNames, NOTE_CHANGED_EVENT, type NoteSpeakers } from '../lib/speakers'
 import { findRecentNoteWithTranscript } from '../lib/noteDedupe'
 import {
   saveAudio,
@@ -575,6 +583,18 @@ export function Capture() {
         const meta = { template, context }
 
         setStep(1)
+        // Nomes dos falantes EM PARALELO com o resumo (a busca leva de 5 a 40 s e nao pode atrasar a
+        // nota). O resumo sai com "Falante A" e a tela troca pelo nome na hora de mostrar. Falha aqui
+        // nunca derruba o processamento: a nota fica sem nomes e da para tentar de novo nela.
+        const namesJob: Promise<NoteSpeakers | null> =
+          hasSpeakers(note.transcript) && !note.speakers?.checked_at
+            ? identifySpeakers(note.transcript)
+                .then((auto) => mergeAutoNames(createdNoteRef.current?.speakers, auto))
+                .catch((err) => {
+                  logSilentError('client:Capture.identifySpeakers', err)
+                  return null
+                })
+            : Promise.resolve(null)
         let summary = opts.summary ?? ''
         let actionItems: Note['action_items'] = []
         if (!summary && !opts.skipActionItems) {
@@ -588,7 +608,31 @@ export function Capture() {
         }
 
         setStep(2)
-        note = await db.updateNote(note.id, { summary, action_items: actionItems, status: 'ready' })
+        // Espera os nomes so mais um pouco; se ainda nao chegaram, a nota abre assim mesmo e os
+        // nomes sao gravados quando chegarem (a tela da nota escuta NOTE_CHANGED_EVENT).
+        const NAMES_WAIT_MS = 6000
+        const early = await Promise.race([
+          namesJob,
+          new Promise<undefined>((r) => setTimeout(() => r(undefined), NAMES_WAIT_MS)),
+        ])
+        note = await db.updateNote(note.id, {
+          summary,
+          action_items: actionItems,
+          status: 'ready',
+          ...(early ? { speakers: early } : {}),
+        })
+        if (early === undefined) {
+          const noteId = note.id
+          void namesJob.then(async (late) => {
+            if (!late) return
+            try {
+              await db.updateNote(noteId, { speakers: late })
+              window.dispatchEvent(new CustomEvent(NOTE_CHANGED_EVENT, { detail: noteId }))
+            } catch (err) {
+              logSilentError('client:Capture.saveSpeakersLate', err)
+            }
+          })
+        }
         createdNoteRef.current = note
         await db.logUsage(profile.id, 'ai_summary')
       }
@@ -1051,7 +1095,7 @@ export function Capture() {
           <span className="min-w-0">
             <span className="block font-medium text-sm">Identificar quem falou</span>
             <span className="block text-xs text-content-muted">
-              Separa as falas de cada pessoa na transcrição (Falante A, Falante B...). Leva um pouco mais de tempo.
+              Separa as falas de cada pessoa (Falante A, Falante B...). Se alguém se apresentar ou for chamado pelo nome e responder, o nome entra no lugar. Leva um pouco mais de tempo.
             </span>
           </span>
         </button>

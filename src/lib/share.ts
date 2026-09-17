@@ -8,6 +8,7 @@
 import type { Note } from './types'
 import { fmtDate, fmtDuration } from './format'
 import { APP_NAME } from './version'
+import { withSpeakerNames } from './speakers'
 
 const PRIORITY_LABEL: Record<string, string> = { high: 'alta', low: 'baixa' }
 
@@ -195,7 +196,7 @@ export function slugify(s: string): string {
 /** Exporta TODAS as notas do usuario em Markdown (pequeno, ideal p/ IA e Word). */
 export function exportNotesMarkdown(notes: Note[], ownerName = ''): void {
   const parts: string[] = [`# Minhas notas — ${APP_NAME}`, ownerName ? `_${ownerName}_` : '', '']
-  for (const n of notes) {
+  for (const n of notes.map(withSpeakerNames)) {
     parts.push(`## ${n.title}`)
     parts.push(
       `_${fmtDate(n.created_at)}${n.duration_seconds ? ` · ${fmtDuration(n.duration_seconds)}` : ''}_`,

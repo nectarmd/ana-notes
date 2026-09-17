@@ -24,6 +24,7 @@ import {
 } from './aiMock'
 import type { ActionItem, MeetingAnalysis, MindMap } from './types'
 import type { PreparedImage } from './image'
+import type { SpeakerEvidence } from './speakers'
 import { AppError, assertNoAdminCooldown } from './appError'
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -227,6 +228,25 @@ export async function generateSummaryAndItems(
     return { summary: mockSummary(transcript), actionItems: mockActionItems(transcript) }
   }
   return invoke<{ summary: string; actionItems: ActionItem[] }>('ai', { task: 'summary_items', transcript, ...meta })
+}
+
+/**
+ * Nomes reais dos falantes ("Falante A" -> "Carla"), so quando a conversa prova: a pessoa se
+ * apresenta, ou alguem a chama pelo nome e ela responde na fala seguinte. O servidor confere cada
+ * prova no texto; o que nao passar fica como "Falante X". Rotulos sem nome nao voltam.
+ */
+export async function identifySpeakers(
+  transcript: string,
+): Promise<Record<string, { name: string; evidence: SpeakerEvidence[] }>> {
+  if (config.mockMode) {
+    await delay(600)
+    return {}
+  }
+  const r = await invoke<{ names: Record<string, { name: string; evidence: SpeakerEvidence[] }> }>('ai', {
+    task: 'identify_speakers',
+    transcript,
+  })
+  return r.names ?? {}
 }
 
 export async function generateDetailed(transcript: string, meta: AiMeta = {}): Promise<string> {

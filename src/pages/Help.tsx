@@ -77,7 +77,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
           },
           {
             q: 'Como separar quem falou na transcrição?',
-            a: 'Ative "Identificar quem falou" antes de processar. A transcrição sai separada por falante.',
+            a: 'Ative "Identificar quem falou" antes de processar: a transcrição sai separada por falante (Falante A, B...). Quando a própria conversa prova quem é quem (a pessoa se apresenta, ou é chamada pelo nome e responde em seguida), o ANA troca o rótulo pelo nome; sem essa prova, não adivinha. Na aba Transcrição, em "Quem falou", você vê o trecho que prova cada nome, pode procurar de novo e dar ou corrigir nomes à mão.',
           },
         ],
       },
@@ -196,7 +196,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
           },
           {
             q: 'How do I separate speakers in the transcript?',
-            a: 'Turn on "Identify who spoke" before processing. The transcript comes out split by speaker.',
+            a: 'Turn on "Identify who spoke" before processing: the transcript comes out split by speaker (Speaker A, B...). When the conversation itself proves who is who (someone introduces themselves, or is called by name and replies right after), ANA replaces the label with the name; without that proof, it does not guess. In the Transcript tab, under "Who spoke", you can see the excerpt behind each name, search again, and add or fix names by hand.',
           },
         ],
       },
@@ -315,7 +315,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
           },
           {
             q: '¿Cómo separo quién habló en la transcripción?',
-            a: 'Activa "Identificar quién habló" antes de procesar. La transcripción sale separada por hablante.',
+            a: 'Activa "Identificar quién habló" antes de procesar: la transcripción sale separada por hablante (Hablante A, B...). Cuando la propia conversación prueba quién es quién (alguien se presenta, o lo llaman por su nombre y responde enseguida), ANA cambia la etiqueta por el nombre; sin esa prueba, no adivina. En la pestaña Transcripción, en "Quién habló", ves el fragmento que prueba cada nombre, puedes buscar de nuevo y poner o corregir nombres a mano.',
           },
         ],
       },

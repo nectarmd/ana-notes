@@ -12,6 +12,7 @@ import { PRIORITIES, PRIORITY_META, PriorityPicker, TaskFlag } from '../componen
 import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
 import { logSilentError } from '../lib/auditLog'
+import { withSpeakerNames } from '../lib/speakers'
 
 /** Uma linha da lista: item de acao de uma nota, ou tarefa avulsa (note = null). */
 type Row = { key: string; item: ActionItem; priority: TaskPriority; note: Note | null; task: Task | null }
@@ -123,7 +124,9 @@ export function TasksPage() {
     for (const n of notes) {
       // A chave inclui a nota: itens de notas antigas tem ids curtos ('1', '2'...) que se repetem entre
       // notas -- como chave sozinha, o React confundia linhas (74 repeticoes no banco em 17/09/2026).
-      for (const item of n.action_items)
+      // Nomes dos falantes no lugar de "Falante B" (texto e responsavel), como na nota.
+      const shown = withSpeakerNames(n)
+      for (const item of shown.action_items)
         all.push({ key: `${n.id}:${item.id}`, item, priority: item.priority ?? 'normal', note: n, task: null })
     }
     for (const tk of tasks) {

@@ -4,6 +4,7 @@
 // Roteamento de modelos (custo x qualidade):
 //   summary / action_items / chat / mindmap -> Haiku 4.5  (rapido e barato)
 //   detailed / analysis / feedback          -> Sonnet 5   (qualidade alta)
+//   identify_speakers                       -> Sonnet 5   (nomes dos falantes, com prova conferida no codigo)
 //
 // Todo gasto passa por `checkBudget` (custo real, notas por hora, rajada) e e contabilizado em
 // api_usage com os tokens REAIS devolvidos pela Anthropic. Todo erro sai por `errorResponse`:
@@ -181,6 +182,214 @@ const DETAILED_INSTRUCTION =
   ' sao a unica opiniao permitida e ficam so na secao Sugestões. Garanta que todas as secoes caibam: prefira bullets' +
   ' curtos a cortar o final.'
 
+// ------------------------------------------------------------------------------------------------
+// Nomes dos falantes (17/09/2026). A diarizacao devolve "Falante A/B/C". Pedido do administrador:
+// trocar pelo nome real SO quando a propria conversa provar -- nunca chutar. Por isso o modelo nao
+// decide sozinho: ele aponta provas (trecho + numero da fala) e o codigo abaixo confere cada uma no
+// texto. Caso real que motivou o rigor: "se voce falar assim, po, aqui, Flavio, talvez uma foto..."
+// -- o nome esta numa fala CITADA, e a regra ingenua ("quem responde e o chamado") erraria.
+// ------------------------------------------------------------------------------------------------
+const SPEAKER_LINE_RE = /^(?:Falante|Speaker|Hablante)\s+([A-Z0-9]{1,3}):\s?(.*)$/
+// O Sonnet 5 raciocina por padrao ANTES de responder, e esse raciocinio conta no max_tokens: com
+// 2000 o limite acabava no raciocinio e a resposta vinha VAZIA -- que parecia "nenhum nome" (teste de
+// 17/09/2026, 8 de 11 notas). Folga grande + esforco medio (tarefa de julgamento, saida curta).
+const IDENTIFY_SPEAKERS_MAX_TOKENS = 16000
+const IDENTIFY_SPEAKERS_EFFORT = 'medium'
+
+interface SpeakerTurn {
+  label: string
+  text: string
+}
+
+/** Falas em ordem; linhas seguidas do mesmo falante viram uma fala so. */
+function speakerTurns(transcript: string): SpeakerTurn[] {
+  const turns: SpeakerTurn[] = []
+  for (const raw of (transcript ?? '').split('\n')) {
+    const line = raw.trim()
+    if (!line) continue
+    const m = SPEAKER_LINE_RE.exec(line)
+    const last = turns[turns.length - 1]
+    if (m) {
+      if (last && last.label === m[1]) last.text += ' ' + m[2]
+      else turns.push({ label: m[1], text: m[2] })
+    } else if (last) {
+      last.text += ' ' + line
+    }
+  }
+  return turns
+}
+
+const foldText = (s: string) =>
+  (s ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+const IDENTIFY_SPEAKERS_INSTRUCTION =
+  'IDENTIFICACAO DE PARTICIPANTES. Os dados sao uma transcricao com falas numeradas [n] e rotulos "Falante X" criados' +
+  ' automaticamente. Descubra o NOME real de um rotulo SOMENTE quando a propria conversa provar. Nunca deduza por cargo,' +
+  ' assunto, genero, jeito de falar, quem gravou, contexto externo ou por eliminacao ("se A e a Carla, B deve ser o Joao").' +
+  ' Na duvida, nao inclua: um rotulo sem nome e sempre melhor que um nome errado.\n\n' +
+  'Provas aceitas (cada uma com o trecho copiado literalmente da fala):\n' +
+  '1. "self": a pessoa diz o proprio nome falando de si mesma ("aqui e a Carla", "eu sou o Joao", "meu nome e Pedro",' +
+  ' "Carla falando"). Chamar outra pessoa pelo nome ("Eu to, Tatiane, so para voce me conhecer") NAO e "self".\n' +
+  '2. "addressed": alguem fala DIRETAMENTE com a pessoa chamando-a pelo nome (vocativo: "Carla, voce pode...?",' +
+  ' "e ai, Joao, o que acha?") e a propria pessoa chamada responde NA FALA SEGUINTE, respondendo ao que foi dito.\n' +
+  '3. "handoff": alguem passa a palavra pelo nome ("vou passar para o Joao", "Carla, sua vez") e a pessoa assume a fala' +
+  ' seguinte.\n\n' +
+  'NAO sao provas: nome citado em terceira pessoa ("a Claudia mandou o relatorio"); nome dentro de fala citada, imitada' +
+  ' ou hipotetica ("se voce me disser: Flavio, faz isso", "ele falou: Joao, ..."); conversa com alguem fora da reuniao' +
+  ' (telefone, pessoa que passou na sala); cumprimento a quem nao responde; nome de empresa, lugar ou produto; fala' +
+  ' seguinte que nao responde ao chamado ou que claramente vem de outra pessoa.\n\n' +
+  'Responda APENAS com JSON no formato:\n' +
+  '{"speakers":[{"label":"A","name":"Carla","evidence":[{"type":"addressed","turn":12,"quote":"Carla, voce pode mostrar","reply_turn":13}]}]}\n' +
+  '- "label": so a letra do rotulo. "name": como foi falado (primeiro nome; sobrenome so se foi dito).\n' +
+  '- "turn": numero da fala onde o nome aparece. Em "self" e fala do proprio rotulo. Em "addressed" e "handoff" e fala' +
+  ' de OUTRA pessoa, e "reply_turn" e o numero da fala seguinte, que e do rotulo identificado.\n' +
+  '- "quote": ate 120 caracteres copiados literalmente da fala "turn", contendo o nome.\n' +
+  '- Liste ate 5 provas por rotulo. Rotulo sem prova clara nao entra. Nenhuma identificacao: {"speakers":[]}.'
+
+interface SpeakerEvidence {
+  type: 'self' | 'addressed' | 'handoff'
+  turn: number
+  quote: string
+  reply_turn?: number
+}
+
+/**
+ * Confere as provas no texto e so aceita o que passar em TODAS as regras:
+ * - o trecho existe na fala citada e contem o nome;
+ * - "self": a fala e do proprio rotulo E o nome vem logo depois de "sou", "me chamo", "meu nome e",
+ *   "aqui e", "quem fala e" (ou "<nome> falando"). Sem isso o modelo chegou a marcar como
+ *   autoapresentacao "Eu to, Tatiane, so para voce me conhecer" -- que e falar COM a Tatiane;
+ * - "addressed"/"handoff": a fala e de outra pessoa, e a fala imediatamente seguinte e do rotulo;
+ *   em "addressed" o nome aparece como vocativo (junto de virgula/interrogacao ou no inicio da fala);
+ * - um rotulo precisa de 1 prova "self" ou de 2 provas de chamado em falas diferentes; numa conversa de
+ *   SO duas pessoas basta 1 chamado (quem responde ao chamado so pode ser a outra pessoa) -- caso da
+ *   entrevista que abre com "Oi, Irã!" e fecha com "Obrigada, Aline";
+ * - conflitos derrubam tudo o que estiver envolvido: dois nomes para um rotulo, o mesmo nome
+ *   sustentado so por chamados em rotulos diferentes, ou um rotulo que usa o nome proposto para
+ *   CHAMAR alguem em tantas falas quanto as provas (ninguem chama a si mesmo pelo nome).
+ */
+/** Sem acento e minusculo, mas COM pontuacao: o vocativo depende da virgula. */
+const plainText = (s: string) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+
+function isVocative(text: string, firstName: string): boolean {
+  return new RegExp(`(^|[,;!?.]\\s*)${firstName}\\b|\\b${firstName}\\s*[,?!]`).test(plainText(text))
+}
+
+function isSelfIntro(quote: string, firstName: string): boolean {
+  return new RegExp(
+    `\\b(sou|aqui e|aqui quem fala e|quem fala e|me chamo|meu nome e)( o| a)? ${firstName}\\b|\\b${firstName} (falando|aqui falando)\\b`,
+  ).test(foldText(quote))
+}
+
+function verifySpeakerNames(
+  turns: SpeakerTurn[],
+  proposal: unknown,
+): Record<string, { name: string; evidence: SpeakerEvidence[] }> {
+  const list = (proposal as { speakers?: unknown })?.speakers
+  if (!Array.isArray(list)) return {}
+  const labels = new Set(turns.map((t) => t.label))
+  const minCalls = labels.size === 2 ? 1 : 2
+  const candidates: { label: string; name: string; key: string; self: SpeakerEvidence[]; calls: SpeakerEvidence[] }[] = []
+
+  for (const raw of list as Record<string, unknown>[]) {
+    const label = String(raw?.label ?? '').replace(/^(Falante|Speaker|Hablante)\s+/i, '').trim().toUpperCase()
+    const name = String(raw?.name ?? '').replace(/\s+/g, ' ').trim()
+    if (!labels.has(label)) continue
+    // Nome de gente: letras (com acento), espaco, hifen e apostrofo; ate 3 palavras.
+    if (!/^[\p{L}][\p{L}'’ -]{1,39}$/u.test(name) || name.split(' ').length > 3) continue
+    const key = foldText(name)
+    const nameWords = key.split(' ')
+    const self: SpeakerEvidence[] = []
+    const calls: SpeakerEvidence[] = []
+    for (const ev of Array.isArray(raw?.evidence) ? (raw.evidence as Record<string, unknown>[]) : []) {
+      const type = String(ev?.type ?? '')
+      const turn = Number(ev?.turn)
+      const quote = String(ev?.quote ?? '').slice(0, 200)
+      if (!Number.isInteger(turn) || turn < 0 || turn >= turns.length) continue
+      const fq = foldText(quote)
+      const qWords = ` ${fq} `
+      if (!fq || !foldText(turns[turn].text).includes(fq)) continue
+      // O nome inteiro (cada palavra) precisa estar no trecho; basta o primeiro nome falado.
+      if (!qWords.includes(` ${nameWords[0]} `)) continue
+      if (type === 'self') {
+        if (turns[turn].label !== label) continue
+        if (!isSelfIntro(quote, nameWords[0])) continue
+        self.push({ type: 'self', turn, quote })
+      } else if (type === 'addressed' || type === 'handoff') {
+        const reply = turn + 1
+        if (Number(ev?.reply_turn) !== reply || reply >= turns.length) continue
+        if (turns[turn].label === label || turns[reply].label !== label) continue
+        // Vocativo: nome no inicio da fala ou colado a virgula/interrogacao/exclamacao.
+        if (type === 'addressed' && !isVocative(turns[turn].text, nameWords[0])) continue
+        if (!calls.some((c) => c.turn === turn)) calls.push({ type: type as SpeakerEvidence['type'], turn, quote, reply_turn: reply })
+      }
+    }
+    if (!self.length && calls.length < minCalls) continue
+    // Contradicao: o proprio rotulo chamando alguem por esse nome. Uma ou outra acontece sem erro --
+    // fala citada ("me chamaram: olha, Samuel, vira socio") e despedida misturada pela diarizacao
+    // ("tchau, viu, Flavio") --, entao so derruba quando pesa tanto quanto as provas (autoapresentacao
+    // vale 2). Um entrevistador rotulado com o nome do candidato teria varios chamados contra poucas provas.
+    const selfTurns = new Set(self.map((e) => e.turn))
+    const against = turns.filter((t, i) => t.label === label && !selfTurns.has(i) && isVocative(t.text, nameWords[0])).length
+    if (against >= self.length * 2 + calls.length) continue
+    candidates.push({ label, name, key, self, calls })
+  }
+
+  // Conflitos.
+  const byLabel = new Map<string, typeof candidates>()
+  for (const c of candidates) byLabel.set(c.label, [...(byLabel.get(c.label) ?? []), c])
+  const byName = new Map<string, typeof candidates>()
+  for (const c of candidates) byName.set(c.key, [...(byName.get(c.key) ?? []), c])
+
+  const out: Record<string, { name: string; evidence: SpeakerEvidence[] }> = {}
+  for (const c of candidates) {
+    const sameLabel = byLabel.get(c.label) ?? []
+    if (new Set(sameLabel.map((x) => x.key)).size > 1) continue // dois nomes para o mesmo rotulo
+    const sameName = byName.get(c.key) ?? []
+    if (sameName.length > 1) {
+      // Mesmo nome em rotulos diferentes: so vale onde a propria pessoa se apresentou (a
+      // diarizacao as vezes divide uma pessoa em dois rotulos); chamado sozinho e ambiguo.
+      if (!c.self.length) continue
+    }
+    out[c.label] = { name: c.name, evidence: [...c.self, ...c.calls].slice(0, 5) }
+  }
+  return out
+}
+
+async function identifySpeakers(transcript: string, meta: CallMeta) {
+  const turns = speakerTurns(transcript)
+  const labels = [...new Set(turns.map((t) => t.label))]
+  if (labels.length < 2) return { names: {}, labels, turns: turns.length, skipped: 'menos de 2 falantes' }
+  // Falas numeradas; corta no limite de entrada sem partir uma fala ao meio.
+  let numbered = ''
+  for (let i = 0; i < turns.length; i++) {
+    const line = `[${i}] Falante ${turns[i].label}: ${turns[i].text}\n`
+    if (numbered.length + line.length > MAX_INPUT) break
+    numbered += line
+  }
+  // Sonnet: a tarefa e de julgamento fino (vocativo x citacao x terceira pessoa); saida curta.
+  const text = await anthropic(
+    SONNET,
+    BASE_SYSTEM,
+    [{ type: 'text', text: wrap(numbered) }, { type: 'text', text: IDENTIFY_SPEAKERS_INSTRUCTION }],
+    IDENTIFY_SPEAKERS_MAX_TOKENS,
+    meta,
+    { output_config: { effort: IDENTIFY_SPEAKERS_EFFORT } },
+  )
+  // Resposta vazia ou sem JSON e FALHA, nunca "ninguem identificado": o app guardaria "ja verificado"
+  // e nao tentaria de novo.
+  const proposal = extractJson<{ speakers?: unknown } | null>(text, null)
+  if (!proposal || !Array.isArray(proposal.speakers)) {
+    throw new CodedError('AI_PROVIDER_ERROR', `identify_speakers sem JSON valido (${text.length} caracteres): ${text.slice(0, 300)}`)
+  }
+  return { names: verifySpeakerNames(turns, proposal), labels, turns: turns.length, proposal, raw: text }
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 interface CallMeta {
@@ -196,6 +405,8 @@ async function anthropic(
   content: unknown[],
   maxTokens: number,
   meta: CallMeta,
+  /** Campos extras do corpo (ex.: output_config.effort). */
+  extra: Record<string, unknown> = {},
 ): Promise<string> {
   let lastStatus = 0
   let lastBody = ''
@@ -213,6 +424,7 @@ async function anthropic(
         max_tokens: maxTokens,
         system,
         messages: [{ role: 'user', content }],
+        ...extra,
       }),
     })
 
@@ -550,6 +762,20 @@ Deno.serve(async (req) => {
       )
     }
 
+    // Teste de prompt sem gravar nada: o administrador roda a identificacao numa nota real.
+    if (task === 'identify_speakers' && body.note_id) {
+      if (!isServiceCall(req)) {
+        return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai', technical: 'identify_speakers por nota sem x-cron-secret valido' })
+      }
+      const admin = adminClient()
+      const { data: n } = admin
+        ? await admin.from('notes').select('id, user_id, transcript').eq('id', String(body.note_id)).single()
+        : { data: null }
+      if (!n) return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai', technical: `nota ${body.note_id} nao encontrada` })
+      const r = await identifySpeakers(String(n.transcript ?? ''), { task: 'identify_speakers', userId: n.user_id })
+      return jsonResponse({ dry: true, note_id: n.id, ...r })
+    }
+
     userId = await callerId(req)
 
     // Mesmo texto ja resumido nas ultimas 24 h: devolve o resultado guardado ANTES do freio (nao
@@ -593,7 +819,7 @@ Deno.serve(async (req) => {
      * recebeu dados, e essa explicacao era salva como se fosse o resumo de verdade. Barra aqui,
      * ANTES de gastar uma chamada.
      */
-    const NEEDS_TRANSCRIPT = new Set(['summary', 'summary_items', 'detailed', 'action_items', 'analysis', 'mindmap', 'feedback'])
+    const NEEDS_TRANSCRIPT = new Set(['summary', 'summary_items', 'detailed', 'action_items', 'analysis', 'mindmap', 'feedback', 'identify_speakers'])
     if (NEEDS_TRANSCRIPT.has(task) && !transcript.trim()) {
       return errorResponse('AI_EMPTY_TRANSCRIPT', { source: 'edge:ai', userId, detail: { task } })
     }
@@ -625,6 +851,9 @@ Deno.serve(async (req) => {
       // Fluxo antigo (duas chamadas): mantido para quem ainda esta com o app aberto na versao anterior.
       const text = await askOnTranscript(HAIKU, summaryInstruction(hint), SUMMARY_MAX_TOKENS)
       out = { summary: text.trim() }
+    } else if (task === 'identify_speakers') {
+      const r = await identifySpeakers(transcript, meta)
+      out = { names: r.names, labels: r.labels }
     } else if (task === 'detailed') {
       const text = await askOnTranscript(SONNET, DETAILED_INSTRUCTION + hint, DETAILED_MAX_TOKENS, transcript, false)
       out = { detailed: text.trim() }

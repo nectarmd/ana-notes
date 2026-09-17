@@ -57,6 +57,8 @@ import { SummaryView, TranscriptView } from '../components/NoteContent'
 import { TaskFlag } from '../components/TaskPriority'
 import { directoryByIds } from '../lib/directory'
 import { markKeysRead } from '../lib/inbox'
+import { nameMap, NOTE_CHANGED_EVENT, withSpeakerNames } from '../lib/speakers'
+import { SpeakersPanel } from '../components/SpeakersPanel'
 
 type Tab = 'summary' | 'detailed' | 'analysis' | 'transcript'
 
@@ -125,11 +127,26 @@ export function NoteDetail() {
     setNote(updated)
   }
 
+  // A nota como o usuario ve: nomes dos falantes no lugar de "Falante A" (a transcricao salva
+  // continua com os rotulos). Tudo que se le, narra, exporta ou manda para a IA sai daqui.
+  const named = useMemo(() => (note ? withSpeakerNames(note) : note), [note])
+  const speakerNames = useMemo(() => nameMap(note?.speakers), [note?.speakers])
+
+  // Nomes que chegaram depois de a nota abrir (busca em segundo plano iniciada na gravacao).
+  useEffect(() => {
+    if (!id) return
+    const onChanged = (e: Event) => {
+      if ((e as CustomEvent<string>).detail === id) db.getNote(id).then((n) => n && setNote(n)).catch(() => {})
+    }
+    window.addEventListener(NOTE_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(NOTE_CHANGED_EVENT, onChanged)
+  }, [id])
+
   const narratableText = useMemo(() => {
-    if (!note) return ''
-    if (tab === 'transcript') return note.transcript
-    return note.summary
-  }, [note, tab])
+    if (!named) return ''
+    if (tab === 'transcript') return named.transcript
+    return named.summary
+  }, [named, tab])
 
   if (note === undefined)
     return (
@@ -153,7 +170,7 @@ export function NoteDetail() {
     if (!note) return
     setMenuOpen(false)
     setEditField(field)
-    setEditValue(field === 'title' ? note.title : note.summary)
+    setEditValue(field === 'title' ? note.title : withSpeakerNames(note).summary)
   }
 
   async function saveEdit() {
@@ -168,10 +185,11 @@ export function NoteDetail() {
   async function copyNote() {
     if (!note) return
     setMenuOpen(false)
-    const lines = [note.title, '', note.summary]
-    if (note.action_items.length) {
+    const shown = withSpeakerNames(note)
+    const lines = [shown.title, '', shown.summary]
+    if (shown.action_items.length) {
       lines.push('', 'Action Items:')
-      note.action_items.forEach((a) => lines.push(`- ${a.text}${a.owner ? ` (${a.owner})` : ''}`))
+      shown.action_items.forEach((a) => lines.push(`- ${a.text}${a.owner ? ` (${a.owner})` : ''}`))
     }
     await navigator.clipboard.writeText(lines.join('\n'))
     toast(t('note.copied'))
@@ -191,9 +209,9 @@ export function NoteDetail() {
       let summary: string
       let action_items = note.action_items
       if (note.action_items.length) {
-        summary = await generateSummary(note.transcript, meta)
+        summary = await generateSummary(withSpeakerNames(note).transcript, meta)
       } else {
-        const r = await generateSummaryAndItems(note.transcript, meta)
+        const r = await generateSummaryAndItems(withSpeakerNames(note).transcript, meta)
         summary = r.summary
         action_items = r.actionItems
       }
@@ -212,7 +230,7 @@ export function NoteDetail() {
     if (!note) return
     setBusy('detailed')
     try {
-      const detailed = await generateDetailed(note.transcript, { template: note.template, context: note.context })
+      const detailed = await generateDetailed(withSpeakerNames(note).transcript, { template: note.template, context: note.context })
       const updated = await db.updateNote(note.id, { detailed_summary: detailed })
       if (profile) await db.logUsage(profile.id, 'ai_detailed', note.id)
       setNote(updated)
@@ -228,7 +246,7 @@ export function NoteDetail() {
     if (!note) return
     setBusy('analysis')
     try {
-      const analysis = await generateAnalysis(note.transcript, { template: note.template, context: note.context })
+      const analysis = await generateAnalysis(withSpeakerNames(note).transcript, { template: note.template, context: note.context })
       // Nunca gravar uma analise vazia por cima da nota: melhor errar e deixar o usuario repetir.
       if (!hasAnalysis(analysis)) {
         toast(t('note.analysisEmpty'), 'error')
@@ -297,9 +315,9 @@ export function NoteDetail() {
     try {
       const reply = await chatWithNote(
         question,
-        note.transcript,
+        withSpeakerNames(note).transcript,
         note.chat.map((m) => ({ role: m.role, content: m.content })),
-        note.summary,
+        withSpeakerNames(note).summary,
       )
       const botMsg: ChatMessage = { id: uid('c_'), role: 'assistant', content: reply, created_at: new Date().toISOString() }
       const updated = await db.updateNote(note.id, { chat: [...withUser.chat, botMsg] })
@@ -595,7 +613,7 @@ export function NoteDetail() {
                   t={t}
                 />
               ) : (
-                <SummaryView text={note.summary} empty={t('note.summaryNA')} />
+                <SummaryView text={named?.summary} empty={t('note.summaryNA')} />
               )}
               {note.action_items.length > 0 && (
                 <div className="mt-6">
@@ -603,7 +621,7 @@ export function NoteDetail() {
                     <ListChecks size={18} className="text-accent" /> {t('note.actionItems')}
                   </h3>
                   <ul className="space-y-2">
-                    {note.action_items.map((a) => (
+                    {(named ?? note).action_items.map((a) => (
                       <li key={a.id}>
                         <button
                           onClick={() => toggleActionItem(a.id)}
@@ -634,7 +652,7 @@ export function NoteDetail() {
 
           {tab === 'detailed' &&
             (note.detailed_summary ? (
-              <SummaryView text={note.detailed_summary} empty={t('note.summaryNA')} />
+              <SummaryView text={named?.detailed_summary} empty={t('note.summaryNA')} />
             ) : !canEdit ? (
               // Sem o dono nao ha o que gerar: a RLS barra o salvamento (e a chamada de IA
               // seria cobrada a toa) -- origem dos 5 erros da Larissa em /admin/audit.
@@ -651,7 +669,7 @@ export function NoteDetail() {
 
           {tab === 'analysis' &&
             (hasAnalysis(note.analysis) ? (
-              <AnalysisView analysis={note.analysis} t={t} />
+              <AnalysisView analysis={named?.analysis ?? note.analysis} t={t} />
             ) : !canEdit ? (
               <p className="text-sm text-content-muted py-8 text-center">{t('note.ownerOnly')}</p>
             ) : (
@@ -665,12 +683,16 @@ export function NoteDetail() {
             ))}
 
           {tab === 'transcript' && (
+            <>
+            <SpeakersPanel note={note} canEdit={canEdit} onSaved={setNote} />
             <TranscriptView
+              names={speakerNames}
               text={note.transcript}
               empty={t('note.transcriptNA')}
               searchPlaceholder={t('note.transcriptSearch')}
               matchesLabel={t('note.transcriptMatches')}
             />
+            </>
           )}
         </div>
       </div>
@@ -774,10 +796,10 @@ export function NoteDetail() {
       />
 
       {shareOpen && (
-        <ShareSheet note={note} open={shareOpen} onClose={() => setShareOpen(false)} />
+        <ShareSheet note={named ?? note} open={shareOpen} onClose={() => setShareOpen(false)} />
       )}
-      {feedbackOpen && <FeedbackSheet note={note} open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />}
-      {translateOpen && <TranslateSheet note={note} open={translateOpen} onClose={() => setTranslateOpen(false)} />}
+      {feedbackOpen && <FeedbackSheet note={named ?? note} open={feedbackOpen} onClose={() => setFeedbackOpen(false)} />}
+      {translateOpen && <TranslateSheet note={named ?? note} open={translateOpen} onClose={() => setTranslateOpen(false)} />}
       {folderOpen && profile && (
         <FolderSheet
           open={folderOpen}

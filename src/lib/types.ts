@@ -1,5 +1,7 @@
 // Domain types shared across data layer, UI and mock.
 
+import type { NoteSpeakers } from './speakers'
+
 export type UserRole = 'admin' | 'member'
 
 export interface Folder {
@@ -239,6 +241,8 @@ export interface Note {
   shared_from_note_id: string | null
   status: 'processing' | 'ready' | 'error'
   priority: NotePriority | null
+  /** Nomes dos falantes por rotulo da diarizacao (0043). A transcricao guarda os rotulos intactos. */
+  speakers?: NoteSpeakers | null
   keep_audio: boolean
   audio_deleted_at: string | null
   deleted_at: string | null

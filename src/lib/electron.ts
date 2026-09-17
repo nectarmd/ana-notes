@@ -18,7 +18,7 @@ export type AnaUpdateStatus =
  * o site ao vivo. Estes caminhos sao a unica coisa que difere de verdade entre as copias.
  */
 export interface AnaPaths {
-  /** Versao do INSTALADOR nativo (package.json) -- diferente da versao do site (APP_VERSION). */
+  /** Versao do INSTALADOR nativo. Uso interno (atualizacao, suporte): na tela so aparece APP_VERSION. */
   version: string
   /** Endereco que este wrapper carrega. Copias anteriores a 0.18.30 apontam pro dominio antigo,
    *  e dominio diferente = armazenamento local diferente (login e pendentes separados). */

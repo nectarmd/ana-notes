@@ -2,23 +2,10 @@ import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowUpCircle, Loader2, X } from 'lucide-react'
 import { isElectron, type AnaUpdateStatus } from '../lib/electron'
-import { LATEST_WINDOWS_BUILD } from '../lib/version'
+import { isOlderVersion, WINDOWS_REQUIRED_BUILD } from '../lib/version'
 import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
 import { useToast } from './Toast'
 import { useT } from '../lib/i18n'
-
-/** Compara "0.18.10" vs "0.18.9": true se `a` for MENOR que `b`. Partes ausentes contam 0. */
-function isOlder(a: string, b: string): boolean {
-  const pa = a.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
-  const pb = b.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)
-  const len = Math.max(pa.length, pb.length)
-  for (let i = 0; i < len; i++) {
-    const x = pa[i] ?? 0
-    const y = pb[i] ?? 0
-    if (x !== y) return x < y
-  }
-  return false
-}
 
 const DISMISS_KEY = 'tailor.updateBanner.dismissed'
 /** Ultima versao do instalador que este aparelho viu -- fecha o ciclo do "deu certo?". */
@@ -36,7 +23,7 @@ export function UpdateBanner() {
   const [dismissed, setDismissed] = useState(() => {
     try {
       // Dispensa so pela sessao (some ao reabrir o app), pra nao esconder pra sempre.
-      return sessionStorage.getItem(DISMISS_KEY) === LATEST_WINDOWS_BUILD
+      return sessionStorage.getItem(DISMISS_KEY) === WINDOWS_REQUIRED_BUILD
     } catch {
       return false
     }
@@ -59,7 +46,8 @@ export function UpdateBanner() {
     try {
       const prev = localStorage.getItem(LAST_SEEN_KEY)
       localStorage.setItem(LAST_SEEN_KEY, now)
-      if (prev && isOlder(prev, now)) toast(`${t('update.done')} ${now}.`)
+      // Sem numero no aviso: a unica versao que o usuario ve e a do app (APP_VERSION).
+      if (prev && isOlderVersion(prev, now)) toast(t('update.done'))
     } catch {
       /* ignore */
     }
@@ -95,7 +83,7 @@ export function UpdateBanner() {
   if (!isElectron() || dismissed) return null
 
   const installed = window.anaElectron!.appVersion
-  const outdated = !installed || isOlder(installed, LATEST_WINDOWS_BUILD)
+  const outdated = !installed || isOlderVersion(installed, WINDOWS_REQUIRED_BUILD)
   if (!outdated) return null
 
   const ready = status === 'downloaded' && typeof window.anaElectron!.quitAndInstall === 'function'
@@ -125,7 +113,7 @@ export function UpdateBanner() {
 
   function dismiss() {
     try {
-      sessionStorage.setItem(DISMISS_KEY, LATEST_WINDOWS_BUILD)
+      sessionStorage.setItem(DISMISS_KEY, WINDOWS_REQUIRED_BUILD)
     } catch {
       /* ignore */
     }

@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react'
 import { stripInlineMd } from '../lib/textPreview'
+import { speakerInitials } from '../lib/speakers'
 
 /* ------------------------------------------------------------------------------------------------
  * Resumo (rapido e detalhado)
@@ -163,7 +164,7 @@ export function SummaryView({ text, empty }: { text: string | null | undefined; 
 const SPEAKER_RE = /^(Falante|Speaker|Hablante)\s+([A-Z0-9]{1,3}):\s?(.*)$/
 
 /** Cores de identificacao de falante (fundo suave + texto), em ordem fixa por letra. */
-const SPEAKER_TONES = [
+export const SPEAKER_TONES = [
   'bg-blue-500/10 text-blue-700 dark:text-blue-300',
   'bg-orange-500/10 text-orange-700 dark:text-orange-300',
   'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
@@ -215,12 +216,15 @@ export function TranscriptView({
   empty,
   searchPlaceholder,
   matchesLabel,
+  names = {},
 }: {
   text: string | null | undefined
   empty: string
   searchPlaceholder: string
   /** Ex.: "{n} ocorrências". */
   matchesLabel: string
+  /** rotulo -> nome real (note.speakers). O texto segue com os rotulos; o nome so aparece aqui. */
+  names?: Record<string, string>
 }) {
   const [query, setQuery] = useState('')
 
@@ -301,13 +305,15 @@ export function TranscriptView({
                   className={`grid place-items-center h-8 w-8 rounded-full text-xs font-bold shrink-0 ${toneOf(turn.speaker)}`}
                   aria-hidden
                 >
-                  {turn.speaker}
+                  {names[turn.speaker] ? speakerInitials(names[turn.speaker]) : turn.speaker}
                 </span>
               ) : (
                 <span className="h-8 w-8 shrink-0" aria-hidden />
               )}
               <div className="min-w-0 flex-1">
-                {turn.label && <p className="text-xs font-semibold text-content-muted mb-0.5">{turn.label}</p>}
+                {turn.label && (
+                  <p className="text-xs font-semibold text-content-muted mb-0.5">{names[turn.speaker] ?? turn.label}</p>
+                )}
                 <div className="space-y-2 text-[15px] leading-7 text-content-secondary break-words">
                   {turn.paras.flatMap(splitLong).map((p, j) => (
                     <p key={j}>

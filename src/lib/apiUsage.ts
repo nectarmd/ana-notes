@@ -47,6 +47,7 @@ export const TASK_LABEL: Record<string, string> = {
   help: 'Ajuda da ANA',
   search: 'Busca em todas as notas',
   image: 'Leitura de imagem',
+  identify_speakers: 'Nomes dos falantes',
 }
 
 export const taskLabel = (t: string) => TASK_LABEL[t] ?? t
