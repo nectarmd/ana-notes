@@ -3,7 +3,6 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Home,
   Settings as SettingsIcon,
-  Sparkles,
   Mic,
   ListChecks,
   CalendarDays,
@@ -207,8 +206,8 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         onClick={() => setNewOpen(true)}
         className="btn-primary mx-4 mb-6 py-2.5 text-sm rounded-xl shadow-float"
       >
-        <Sparkles size={17} />
-        {t('sidebar.smartRec')}
+        <Mic size={17} />
+        {t('sidebar.newNote')}
       </button>
 
       {/* Duas secoes: o menu principal e as "Mais funcoes" (as mesmas do Config). O nav em si
