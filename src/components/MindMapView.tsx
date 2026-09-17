@@ -276,7 +276,7 @@ export function MindMapView({ map, title }: { map: MindMap; title?: string }) {
         }, 'image/png'),
       )
     } catch {
-      toast('Nao foi possivel gerar a imagem.', 'error')
+      toast('Não foi possível gerar a imagem.', 'error')
     }
   }
 
@@ -289,7 +289,7 @@ export function MindMapView({ map, title }: { map: MindMap; title?: string }) {
       pdf.addImage(jpeg, 'JPEG', 0, 0, totalW, totalHeight)
       pdf.save(fileBase() + '.pdf')
     } catch {
-      toast('Nao foi possivel gerar o PDF.', 'error')
+      toast('Não foi possível gerar o PDF.', 'error')
     }
   }
 
@@ -314,7 +314,7 @@ export function MindMapView({ map, title }: { map: MindMap; title?: string }) {
       const str = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone)
       saveBlob(str, 'image/svg+xml;charset=utf-8', 'svg')
     } catch {
-      toast('Nao foi possivel gerar o SVG.', 'error')
+      toast('Não foi possível gerar o SVG.', 'error')
     }
   }
 

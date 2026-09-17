@@ -8,7 +8,7 @@ export async function deleteMyAccount(): Promise<void> {
     localStorage.clear()
     return
   }
-  if (!supabase) throw new Error('Sem conexao com o servidor.')
+  if (!supabase) throw new Error('Sem conexão com o servidor.')
 
   const { data, error } = await supabase.functions.invoke<{ ok?: boolean; error?: string }>('delete-account', {
     body: {},

@@ -83,7 +83,35 @@ async function whisperOnce(file: File): Promise<{ text: string; seconds: number 
     throw err
   }
   const data = await res.json()
-  return { text: data.text ?? '', seconds: Math.round(Number(data.duration) || 0) }
+  const segments = Array.isArray(data.segments) ? data.segments : []
+  const text = segments.length ? paragraphize(segments) : String(data.text ?? '')
+  return { text, seconds: Math.round(Number(data.duration) || 0) }
+}
+
+/**
+ * Transcricao em PARAGRAFOS, nao num bloco unico. Ate 17/09/2026 o texto do Whisper era gravado como
+ * veio -- 48 mil caracteres sem uma quebra de linha, ilegivel na tela. Os trechos (segmentos do
+ * Whisper ou palavras do AssemblyAI, com tempo em segundos) viram paragrafo novo numa pausa de 2 s
+ * ou mais, ou quando o paragrafo ja esta longo e a frase termina.
+ */
+function paragraphize(pieces: Array<{ text?: string; start?: number; end?: number }>): string {
+  const out: string[] = []
+  let cur = ''
+  let lastEnd = 0
+  for (const p of pieces) {
+    const t = String(p.text ?? '').trim()
+    if (!t) continue
+    const start = Number(p.start) || 0
+    const endsSentence = /[.!?…]["')\]]?$/.test(cur)
+    if (cur && ((start - lastEnd >= 2 && cur.length >= 150) || (cur.length >= 650 && endsSentence) || cur.length >= 1200)) {
+      out.push(cur)
+      cur = ''
+    }
+    cur = cur ? `${cur} ${t}` : t
+    lastEnd = Number(p.end) || start
+  }
+  if (cur) out.push(cur)
+  return out.join('\n\n')
 }
 
 /**
@@ -151,13 +179,16 @@ async function assemblyFetch(id: string): Promise<Record<string, unknown> | null
   }
 }
 
-/** Texto final: com diarizacao vira "Falante A: ...", uma fala por linha. */
+/** Texto final: com diarizacao vira "Falante A: ...", uma fala por linha; sem, paragrafos pelas pausas. */
 function assemblyResult(data: Record<string, unknown>): { text: string; seconds: number } {
   const utterances = data.utterances as Array<{ speaker: string; text: string }> | undefined
+  const words = data.words as Array<{ text: string; start: number; end: number }> | undefined
   const text =
     Array.isArray(utterances) && utterances.length
       ? utterances.map((u) => `Falante ${u.speaker}: ${u.text}`).join('\n')
-      : String(data.text ?? '')
+      : Array.isArray(words) && words.length
+        ? paragraphize(words.map((w) => ({ text: w.text, start: w.start / 1000, end: w.end / 1000 })))
+        : String(data.text ?? '')
   return { text, seconds: Math.round(Number(data.audio_duration) || 0) }
 }
 

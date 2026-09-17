@@ -66,7 +66,7 @@ export function AudioPlayer({ audioRef, durationHint = 0 }: { audioRef: string; 
     try {
       await a.play()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nao foi possivel reproduzir.')
+      setError(e instanceof Error ? e.message : 'Não foi possível reproduzir.')
     }
   }
 
@@ -99,7 +99,7 @@ export function AudioPlayer({ audioRef, durationHint = 0 }: { audioRef: string; 
   if (!url)
     return (
       <div className="card p-4 text-sm text-content-muted text-center">
-        Audio nao disponivel para reproducao.
+        Áudio não disponível para reprodução.
       </div>
     )
 
@@ -122,7 +122,7 @@ export function AudioPlayer({ audioRef, durationHint = 0 }: { audioRef: string; 
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => setPlaying(false)}
-        onError={() => setError('Falha ao carregar o audio.')}
+        onError={() => setError('Falha ao carregar o áudio.')}
       />
 
       <input
@@ -140,7 +140,7 @@ export function AudioPlayer({ audioRef, durationHint = 0 }: { audioRef: string; 
         onKeyUp={() => setSeeking(false)}
         onChange={(e) => seekTo(Number(e.target.value))}
         className="w-full accent-accent mb-2 cursor-pointer disabled:cursor-not-allowed"
-        aria-label="Progresso do audio"
+        aria-label="Progresso do áudio"
       />
 
       <div className="flex items-center justify-between text-xs text-content-muted mb-3 tabular-nums">

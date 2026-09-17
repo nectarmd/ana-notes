@@ -35,15 +35,15 @@ export async function extractPdf(file: File): Promise<string> {
     const msg = describeUnknownError(err)
     if (/password/i.test(msg)) throw new FileError('Este PDF esta protegido por senha.')
     if (/invalid|corrupt|structure/i.test(msg)) throw new FileError('Este PDF parece estar corrompido.')
-    throw new FileError('Nao consegui ler este PDF. Se ele for digitalizado, use "Resumir imagem".')
+    throw new FileError('Não consegui ler este PDF. Se ele for digitalizado, use "Resumir imagem".')
   }
 
   const text = out.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim()
   if (text.length < 20) {
     // PDF de texto-em-imagem (escaneado/fotografado): nao ha camada de texto para extrair.
     throw new FileError(
-      'Este PDF nao tem texto selecionavel — parece ser digitalizado (imagem). ' +
-        'Envie a pagina como imagem em "Resumir imagem" para a IA ler o conteudo.',
+      'Este PDF não tem texto selecionável — parece ser digitalizado (imagem). ' +
+        'Envie a página como imagem em "Resumir imagem" para a IA ler o conteúdo.',
     )
   }
   return text
@@ -56,11 +56,11 @@ export async function extractDocx(file: File): Promise<string> {
     const arrayBuffer = await file.arrayBuffer()
     const res = await mammoth.extractRawText({ arrayBuffer })
     const text = (res.value || '').trim()
-    if (!text) throw new FileError('Este DOCX nao tem texto para extrair.')
+    if (!text) throw new FileError('Este DOCX não tem texto para extrair.')
     return text
   } catch (err) {
     if (err instanceof FileError) throw err
-    throw new FileError('Nao consegui ler este DOCX. Salve novamente como .docx ou PDF.')
+    throw new FileError('Não consegui ler este DOCX. Salve novamente como .docx ou PDF.')
   }
 }
 
@@ -72,21 +72,21 @@ export async function extractFile(file: File): Promise<string> {
   const ext = extOf(file.name)
 
   if (file.type.startsWith('image/')) {
-    throw new FileError('Isto e uma imagem. Use a opcao "Resumir imagem" para a IA ler o conteudo.')
+    throw new FileError('Isto é uma imagem. Use a opção "Resumir imagem" para a IA ler o conteúdo.')
   }
   // isAudioFile/isVideoFile: .m4a (e afins) chega sem MIME no Windows -- so File.type
   // deixava o audio cair no erro generico de "formato nao suportado".
   if (isAudioFile(file)) {
-    throw new FileError('Isto e um audio. Use "Enviar audio" para transcrever.')
+    throw new FileError('Isto é um áudio. Use "Enviar áudio" para transcrever.')
   }
   if (isVideoFile(file)) {
-    throw new FileError('Isto e um video. Use "Enviar video" para transcrever.')
+    throw new FileError('Isto é um vídeo. Use "Enviar vídeo" para transcrever.')
   }
   if (ext === 'doc') {
-    throw new FileError('Formato .doc antigo nao suportado — salve como .docx ou PDF.')
+    throw new FileError('Formato .doc antigo não suportado — salve como .docx ou PDF.')
   }
   if (!TEXT_EXTS.includes(ext)) {
-    throw new FileError(`Formato .${ext || '?'} nao suportado. Envie PDF, DOCX, TXT, MD ou CSV.`)
+    throw new FileError(`Formato .${ext || '?'} não suportado. Envie PDF, DOCX, TXT, MD ou CSV.`)
   }
 
   if (ext === 'pdf') return extractPdf(file)
@@ -100,13 +100,13 @@ export async function extractFile(file: File): Promise<string> {
 /** Extrai o texto principal de uma pagina web (via edge function, sem CORS). */
 export async function extractLink(url: string): Promise<string> {
   if (config.mockMode || !supabase) {
-    return `Conteudo do link: ${url}\n\n(A extracao real do conteudo requer o backend configurado.)`
+    return `Conteúdo do link: ${url}\n\n(A extração real do conteúdo requer o backend configurado.)`
   }
   const { data, error } = await supabase.functions.invoke('extract-link', { body: { url } })
   if (error) throw new FileError(error.message || 'Falha ao extrair o link.')
   const d = data as { text?: string; error?: string }
   if (d.error) throw new FileError(d.error)
   const text = (d.text || '').trim()
-  if (!text) throw new FileError('Nao consegui extrair texto desta pagina.')
+  if (!text) throw new FileError('Não consegui extrair texto desta página.')
   return text
 }

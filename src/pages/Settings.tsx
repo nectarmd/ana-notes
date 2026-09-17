@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ChevronRight,
@@ -26,8 +26,7 @@ import {
   Monitor,
   Smartphone,
   SquarePlus,
-  Crown,
-  UserCog,
+  Activity,
   FolderOpen,
   AlertTriangle,
 } from 'lucide-react'
@@ -43,8 +42,6 @@ import { langLabel, LANGS } from '../lib/lang'
 import { useI18n, useT } from '../lib/i18n'
 import { RETENTION_CHOICES, RETENTION_DEFAULT, type RetentionDays } from '../lib/types'
 import { friendsEnabled, unreadCount } from '../lib/friends'
-import { acceptTeamInvite, declineOrLeaveTeam, listPendingForMe, teamsEnabled } from '../lib/teams'
-import type { TeamEdge } from '../lib/types'
 import { NavTag } from '../components/NavTag'
 import { logSilentError } from '../lib/auditLog'
 import { APP_NAME, APP_VERSION, LATEST_WINDOWS_BUILD } from '../lib/version'
@@ -80,6 +77,15 @@ function SafeAreaDebug() {
   }, [])
 
   return <p className="text-[9px] text-content-muted/70 mt-0.5">{info}</p>
+}
+
+function SoonTag({ label }: { label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <NavTag variant="muted">{label}</NavTag>
+      <ChevronRight size={18} className="text-content-muted" />
+    </span>
+  )
 }
 
 function Row({
@@ -249,8 +255,6 @@ export function Settings() {
   const [retOpen, setRetOpen] = useState(false)
   const [retLower, setRetLower] = useState<RetentionDays | null>(null)
   const [unread, setUnread] = useState(0)
-  const [teamEdges, setTeamEdges] = useState<TeamEdge[]>([])
-  const [teamBusy, setTeamBusy] = useState<string | null>(null)
   const { lang, setLang, t } = useI18n()
 
   const retention: RetentionDays = profile?.audio_retention_days ?? RETENTION_DEFAULT
@@ -261,29 +265,6 @@ export function Settings() {
       .then(setUnread)
       .catch(() => setUnread(0))
   }, [profile])
-
-  const refreshTeamEdges = useCallback(() => {
-    if (!profile || !teamsEnabled()) return
-    listPendingForMe(profile.id)
-      .then(setTeamEdges)
-      .catch(() => setTeamEdges([]))
-  }, [profile])
-
-  useEffect(refreshTeamEdges, [refreshTeamEdges])
-
-  async function respondTeamInvite(edge: TeamEdge, accept: boolean) {
-    setTeamBusy(edge.link.id)
-    try {
-      if (accept) await acceptTeamInvite(edge.link.id)
-      else await declineOrLeaveTeam(edge.link.id)
-      refreshTeamEdges()
-    } catch (err) {
-      logSilentError('client:Settings.respondTeamInvite', err)
-      toast(t('common.error'), 'error')
-    } finally {
-      setTeamBusy(null)
-    }
-  }
 
   async function applyRetention(days: RetentionDays) {
     try {
@@ -336,7 +317,7 @@ export function Settings() {
   }
 
   return (
-    <div className="px-5 safe-top">
+    <div className="px-5 safe-top pb-8 max-w-3xl mx-auto">
       <header className="flex items-center justify-between mb-6">
         <h1 className="font-display text-3xl font-bold">{t('settings.title')}</h1>
         {/* No app Windows a etiqueta mostra as DUAS versoes. Antes so aparecia a do site, que e
@@ -371,67 +352,18 @@ export function Settings() {
       </button>
 
       {isAdmin && (
-        <div className="card divide-y divide-surface-border mb-6">
-          <Row
-            icon={<ShieldCheck size={20} className="text-accent" />}
-            label={t('settings.adminPanel')}
-            onClick={() => navigate('/admin')}
-          />
-          <Row
-            icon={<Crown size={20} className="text-accent" />}
-            label={t('settings.manager')}
-            onClick={() => navigate('/gerente')}
-            right={
-              <span className="flex items-center gap-1.5">
-                <NavTag variant="accent">{t('nav.pro')}</NavTag>
-                <ChevronRight size={18} className="text-content-muted" />
-              </span>
-            }
-          />
-        </div>
-      )}
-
-      {teamEdges.length > 0 && (
-        <div className="card divide-y divide-surface-border mb-6">
-          {teamEdges.map((e) => (
-            <div key={e.link.id} className="flex items-center gap-3 px-4 py-3.5">
-              <UserCog size={20} className="text-content-secondary shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-sm truncate">
-                  {e.link.status === 'pending'
-                    ? t('settings.teamInvitePending').replace('{name}', `${e.person.first_name} ${e.person.last_name}`)
-                    : t('settings.teamMemberOf').replace('{name}', `${e.person.first_name} ${e.person.last_name}`)}
-                </p>
-              </div>
-              {e.link.status === 'pending' ? (
-                <>
-                  <button
-                    onClick={() => respondTeamInvite(e, true)}
-                    disabled={teamBusy === e.link.id}
-                    className="btn-primary h-9 px-3 text-sm shrink-0"
-                  >
-                    {t('settings.teamInviteAccept')}
-                  </button>
-                  <button
-                    onClick={() => respondTeamInvite(e, false)}
-                    disabled={teamBusy === e.link.id}
-                    className="btn-ghost h-9 px-3 text-sm shrink-0"
-                  >
-                    {t('settings.teamInviteDecline')}
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={() => respondTeamInvite(e, false)}
-                  disabled={teamBusy === e.link.id}
-                  className="btn-ghost h-9 px-3 text-sm shrink-0"
-                >
-                  {t('settings.teamLeave')}
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
+        <>
+          <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.admin')}</p>
+          <div className="card divide-y divide-surface-border mb-6">
+            <Row
+              icon={<ShieldCheck size={20} className="text-accent" />}
+              label={t('settings.adminPanel')}
+              onClick={() => navigate('/admin')}
+            />
+            <Row icon={<Activity size={20} />} label="Custos das APIs" onClick={() => navigate('/admin/api')} />
+            <Row icon={<ScrollText size={20} />} label="Log de auditoria" onClick={() => navigate('/admin/audit')} />
+          </div>
+        </>
       )}
 
       <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.more')}</p>
@@ -456,8 +388,18 @@ export function Settings() {
           label={t('settings.sharedWithMe')}
           onClick={() => navigate('/compartilhados')}
         />
-        <Row icon={<Plug size={20} />} label={t('settings.connectors')} onClick={() => navigate('/conectores')} />
-        <Row icon={<BarChart3 size={20} />} label={t('settings.analytics')} onClick={() => navigate('/analytics')} />
+        <Row
+          icon={<Plug size={20} />}
+          label={t('settings.connectors')}
+          onClick={() => navigate('/conectores')}
+          right={<SoonTag label={t('nav.soon')} />}
+        />
+        <Row
+          icon={<BarChart3 size={20} />}
+          label={t('settings.analytics')}
+          onClick={() => navigate('/analytics')}
+          right={<SoonTag label={t('nav.soon')} />}
+        />
       </div>
 
       <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.prefs')}</p>
@@ -473,7 +415,7 @@ export function Settings() {
               }`}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
                   theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'
                 }`}
               />
@@ -575,10 +517,34 @@ export function Settings() {
         <Row icon={<Trash2 size={20} />} label={t('settings.trash')} onClick={() => navigate('/lixeira')} />
       </div>
 
+      <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.apps')}</p>
+      <div className="card divide-y divide-surface-border mb-6">
+        <Row
+          icon={<Monitor size={20} />}
+          label={t('settings.downloadWindows')}
+          onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
+          right={
+            <span className="flex items-center gap-1.5">
+              <span className="text-xs font-medium text-content-muted">v{LATEST_WINDOWS_BUILD}</span>
+              <ChevronRight size={18} className="text-content-muted" />
+            </span>
+          }
+        />
+        <Row
+          icon={<Smartphone size={20} />}
+          label={t('settings.downloadAndroid')}
+          onClick={() => window.open(ANDROID_APK_DOWNLOAD_URL, '_blank')}
+        />
+        <Row icon={<SquarePlus size={20} />} label={t('settings.installPwa')} onClick={() => navigate('/instalar')} />
+      </div>
+
+      <WindowsAppInfo />
+
       <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.support')}</p>
       <div className="card divide-y divide-surface-border mb-6">
         <Row icon={<LifeBuoy size={20} />} label={t('settings.contactSupport')} onClick={() => navigate('/suporte')} />
         <Row icon={<HelpCircle size={20} />} label={t('settings.helpCenter')} onClick={() => navigate('/ajuda')} />
+        <Row icon={<Info size={20} />} label={t('about.title')} onClick={() => navigate('/sobre')} />
         <Row icon={<ScrollText size={20} />} label={t('settings.terms')} onClick={() => navigate('/termos')} />
         <Row icon={<FileLock2 size={20} />} label={t('settings.privacy')} onClick={() => navigate('/privacidade')} />
       </div>
@@ -587,7 +553,7 @@ export function Settings() {
         <Row icon={<LogOut size={20} />} label={t('settings.logout')} danger onClick={signOut} right={<span />} />
       </div>
 
-      <div className="card mb-8">
+      <div className="card mb-10">
         <Row
           icon={<UserX size={20} />}
           label={t('settings.deleteAccount')}
@@ -624,34 +590,6 @@ export function Settings() {
           {deleting ? <Spinner /> : <UserX size={18} />} {t('settings.deleteAccount')}
         </button>
       </Sheet>
-
-      <WindowsAppInfo />
-
-      <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('about.title')}</p>
-      <div className="card divide-y divide-surface-border mb-8">
-        <Row icon={<Info size={20} />} label={t('about.title')} onClick={() => navigate('/sobre')} />
-        <Row
-          icon={<Monitor size={20} />}
-          label={t('settings.downloadWindows')}
-          onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
-          right={
-            <span className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-content-muted">v{LATEST_WINDOWS_BUILD}</span>
-              <ChevronRight size={18} className="text-content-muted" />
-            </span>
-          }
-        />
-        <Row
-          icon={<Smartphone size={20} />}
-          label={t('settings.downloadAndroid')}
-          onClick={() => window.open(ANDROID_APK_DOWNLOAD_URL, '_blank')}
-        />
-        <Row
-          icon={<SquarePlus size={20} />}
-          label="Instalar app no celular (PWA)"
-          onClick={() => navigate('/instalar')}
-        />
-      </div>
 
       <div className="flex flex-col items-center gap-2 pb-4 text-content-muted">
         <Logo size="lg" />

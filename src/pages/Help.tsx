@@ -14,7 +14,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
       },
       {
         q: "O que é 'Gravar reunião'?",
-        a: 'No computador (Chrome/Edge), captura o áudio da reunião (Zoom/Meet/Teams) + o seu microfone — funciona até de fone. Basta marcar "Compartilhar áudio" no diálogo do navegador.',
+        a: 'No app ANA para Windows, capta o som do computador (Teams, Zoom, Meet, WhatsApp) + o seu microfone — funciona até de fone; o atalho Ctrl+Shift+G já começa a gravar. No navegador (Chrome/Edge), escolha a aba da reunião e deixe marcado "Compartilhar também o áudio da guia".',
       },
       {
         q: 'Importar PDF, DOCX ou link',
@@ -34,19 +34,19 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
       },
       {
         q: 'Minhas tarefas',
-        a: 'Todos os action items das suas reuniões ficam reunidos em "Tarefas": filtre por em aberto/concluídas e marque como feito — reflete na nota de origem.',
+        a: 'Os itens de ação das suas reuniões e as tarefas que você cria ficam em "Tarefas". Dá para concluir, editar, excluir e marcar a urgência (alta, normal ou baixa) com a bandeirinha, e filtrar por situação e por urgência. O que você muda num item de reunião vale também na nota de origem.',
       },
       {
         q: 'Como compartilho uma nota?',
-        a: 'Dentro da nota, toque em "Compartilhar": WhatsApp, e-mail, PDF, Word, copiar, baixar áudio/transcrição — e também compartilhar direto com parceiros cadastrados.',
+        a: 'Dentro da nota, toque em "Compartilhar": WhatsApp, e-mail, PDF, Word, copiar, baixar áudio/transcrição — e também enviar uma cópia para um colega cadastrado no ANA (sem o áudio).',
       },
       {
         q: 'Por quanto tempo o áudio fica guardado?',
-        a: 'Por padrão o áudio é excluído automaticamente em 14 dias (a transcrição e as informações são mantidas para sempre). Você pode marcar "Manter áudio para sempre" em cada nota.',
+        a: 'Por padrão o áudio é excluído automaticamente em 3 dias; a transcrição e o resumo ficam guardados para sempre. Em Configurações → Exclusão automática do áudio você escolhe 3, 7 ou 14 dias, e em cada nota pode ligar "Manter áudio para sempre".',
       },
       {
         q: 'Precisa de suporte?',
-        a: 'Abra um chamado em Configurações → Suporte, escolhendo o tema (Financeiro, Técnico, Feedback ou Outros).',
+        a: 'Abra um chamado em Configurações → Falar com o suporte, escolhendo o tema (Financeiro, Técnico, Feedback ou Outros).',
       },
     ],
   },
@@ -60,7 +60,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
       },
       {
         q: "What is 'Record meeting'?",
-        a: 'On desktop (Chrome/Edge) it captures the meeting audio (Zoom/Meet/Teams) + your microphone — even with headphones. Just check "Share audio" in the browser dialog.',
+        a: 'In the ANA app for Windows it captures the computer sound (Teams, Zoom, Meet, WhatsApp) + your microphone — even with headphones; Ctrl+Shift+G starts recording right away. In the browser (Chrome/Edge), pick the meeting tab and keep "Also share tab audio" checked.',
       },
       {
         q: 'Import PDF, DOCX or a link',
@@ -80,15 +80,15 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
       },
       {
         q: 'My tasks',
-        a: 'All action items from your meetings are gathered in "Tasks": filter by open/done and check them off — it reflects in the source note.',
+        a: 'Action items from your meetings and the tasks you create live in "Tasks". You can complete, edit, delete and set the urgency (high, normal or low) with the flag, and filter by status and urgency. Changes to a meeting item also apply to its source note.',
       },
       {
         q: 'How do I share a note?',
-        a: 'Inside a note, tap "Share": WhatsApp, email, PDF, Word, copy, download audio/transcript — and also share directly with registered partners.',
+        a: 'Inside a note, tap "Share": WhatsApp, email, PDF, Word, copy, download audio/transcript — or send a copy to a colleague registered in ANA (without the audio).',
       },
       {
         q: 'How long is the audio kept?',
-        a: 'By default the audio is deleted automatically after 14 days (the transcript and information are kept forever). You can turn on "Keep audio forever" per note.',
+        a: 'By default the audio is deleted automatically after 3 days; the transcript and summary are kept forever. In Settings you can choose 3, 7 or 14 days, and turn on "Keep audio forever" per note.',
       },
       {
         q: 'Need support?',
@@ -106,7 +106,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
       },
       {
         q: '¿Qué es "Grabar reunión"?',
-        a: 'En el ordenador (Chrome/Edge) captura el audio de la reunión (Zoom/Meet/Teams) + tu micrófono — incluso con auriculares. Solo marca "Compartir audio" en el diálogo del navegador.',
+        a: 'En la app ANA para Windows capta el sonido del ordenador (Teams, Zoom, Meet, WhatsApp) + tu micrófono — incluso con auriculares; Ctrl+Shift+G empieza a grabar al instante. En el navegador (Chrome/Edge), elige la pestaña de la reunión y deja marcado "Compartir también el audio de la pestaña".',
       },
       {
         q: 'Importar PDF, DOCX o un enlace',
@@ -126,15 +126,15 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
       },
       {
         q: 'Mis tareas',
-        a: 'Todos los elementos de acción de tus reuniones se reúnen en "Tareas": filtra por abiertas/hechas y márcalas como hechas — se refleja en la nota de origen.',
+        a: 'Los ítems de acción de tus reuniones y las tareas que creas están en "Tareas". Puedes completarlas, editarlas, eliminarlas y marcar la urgencia (alta, normal o baja) con la banderita, y filtrar por estado y urgencia. Los cambios en un ítem de reunión también valen en la nota de origen.',
       },
       {
         q: '¿Cómo comparto una nota?',
-        a: 'Dentro de la nota, toca "Compartir": WhatsApp, correo, PDF, Word, copiar, descargar audio/transcripción — y también compartir directamente con socios registrados.',
+        a: 'Dentro de la nota, toca "Compartir": WhatsApp, correo, PDF, Word, copiar, descargar audio/transcripción — o enviar una copia a un colega registrado en ANA (sin el audio).',
       },
       {
         q: '¿Cuánto tiempo se guarda el audio?',
-        a: 'Por defecto el audio se elimina automáticamente a los 14 días (la transcripción y la información se conservan para siempre). Puedes activar "Mantener audio para siempre" en cada nota.',
+        a: 'Por defecto el audio se elimina automáticamente a los 3 días; la transcripción y el resumen se conservan para siempre. En Ajustes puedes elegir 3, 7 o 14 días, y activar "Mantener audio para siempre" en cada nota.',
       },
       {
         q: '¿Necesitas soporte?',

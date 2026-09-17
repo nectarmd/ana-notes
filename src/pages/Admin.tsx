@@ -134,7 +134,7 @@ export function Admin() {
         </button>
         <div>
           <h1 className="font-display text-2xl font-bold">Administrador</h1>
-          <p className="text-sm text-content-muted">Uso da plataforma por usuario</p>
+          <p className="text-sm text-content-muted">Uso da plataforma por usuário</p>
         </div>
       </header>
 
@@ -152,9 +152,9 @@ export function Admin() {
             <div className="grid grid-cols-3 gap-3 content-start">
               <StatCard icon={<Users size={16} />} label="Usuarios" value={totals.users} />
               <StatCard icon={<NotebookPen size={16} />} label="Notas" value={totals.notes} />
-              <StatCard icon={<Mic size={16} />} label="Gravacoes" value={totals.recordings} />
-              <StatCard icon={<FileText size={16} />} label="Transcricoes" value={totals.transcriptions} />
-              <StatCard icon={<Sparkles size={16} />} label="Sugestoes IA" value={totals.ai} />
+              <StatCard icon={<Mic size={16} />} label="Gravações" value={totals.recordings} />
+              <StatCard icon={<FileText size={16} />} label="Transcrições" value={totals.transcriptions} />
+              <StatCard icon={<Sparkles size={16} />} label="Sugestões IA" value={totals.ai} />
               <StatCard icon={<Volume2 size={16} />} label="Narracoes" value={totals.tts} />
             </div>
           </div>
@@ -206,7 +206,7 @@ export function Admin() {
             <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" />
             <input
               className="input pl-11"
-              placeholder="Buscar usuario por nome ou e-mail"
+              placeholder="Buscar usuário por nome ou e-mail"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
@@ -221,9 +221,9 @@ export function Admin() {
                   <th className="px-3 py-3 font-medium text-center">Notas</th>
                   <th className="px-3 py-3 font-medium text-center">Gravacoes</th>
                   <th className="px-3 py-3 font-medium text-center">Transcricoes</th>
-                  <th className="px-3 py-3 font-medium text-center">Sugestoes IA</th>
+                  <th className="px-3 py-3 font-medium text-center">Sugestões IA</th>
                   <th className="px-3 py-3 font-medium text-center">Narracoes</th>
-                  <th className="px-4 py-3 font-medium">Ultima atividade</th>
+                  <th className="px-4 py-3 font-medium">Última atividade</th>
                   <th className="px-3 py-3 font-medium text-center">Acoes</th>
                 </tr>
               </thead>
@@ -301,7 +301,7 @@ export function Admin() {
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <Metric label="Notas" value={r.notesCount} />
-                  <Metric label="Gravacoes" value={r.recordings} />
+                  <Metric label="Gravações" value={r.recordings} />
                   <Metric label="Transcr." value={r.transcriptions} />
                   <Metric label="Sug. IA" value={r.aiSuggestions} />
                   <Metric label="Narracoes" value={r.ttsCount} />
@@ -350,10 +350,10 @@ export function Admin() {
 
           <ConfirmDialog
             open={!!pendingDelete}
-            title="Excluir usuario?"
+            title="Excluir usuário?"
             message={
               pendingDelete
-                ? `${pendingDelete.first_name} ${pendingDelete.last_name} (${pendingDelete.email}). Isso remove tambem as notas e dados dele. Nao pode ser desfeito.`
+                ? `${pendingDelete.first_name} ${pendingDelete.last_name} (${pendingDelete.email}). Isso remove também as notas e dados dele. Não pode ser desfeito.`
                 : undefined
             }
             confirmLabel="Excluir"
@@ -398,7 +398,7 @@ export function Admin() {
         </>
       )}
 
-      <Sheet open={!!editing} onClose={() => setEditing(null)} title="Editar usuario">
+      <Sheet open={!!editing} onClose={() => setEditing(null)} title="Editar usuário">
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>

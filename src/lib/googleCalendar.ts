@@ -13,7 +13,14 @@ export interface CalEvent {
   id: string
   title: string
   start: string
+  /** Fim do evento (dateTime ou date). Vazio quando o Google nao informa. */
+  end: string
   allDay: boolean
+  /** Link da chamada (Meet ou outro provedor de videoconferencia), quando houver. */
+  joinUrl: string | null
+  location: string | null
+  /** Quantidade de convidados (inclui voce). 0 quando o evento nao tem convidados. */
+  attendees: number
 }
 
 
@@ -235,11 +242,23 @@ export async function listUpcomingEvents(
         id: string
         summary?: string
         start?: { dateTime?: string; date?: string }
+        end?: { dateTime?: string; date?: string }
+        hangoutLink?: string
+        location?: string
+        attendees?: unknown[]
+        conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] }
       }) => ({
         id: e.id,
-        title: e.summary || '(sem titulo)',
+        title: e.summary || '(sem título)',
         start: e.start?.dateTime || e.start?.date || '',
+        end: e.end?.dateTime || e.end?.date || '',
         allDay: !e.start?.dateTime,
+        joinUrl:
+          e.hangoutLink ||
+          e.conferenceData?.entryPoints?.find((x) => x.entryPointType === 'video' && x.uri?.startsWith('https://'))?.uri ||
+          null,
+        location: e.location?.trim() || null,
+        attendees: Array.isArray(e.attendees) ? e.attendees.length : 0,
       }))
       return { needsAuth: false, events }
     } catch (e) {

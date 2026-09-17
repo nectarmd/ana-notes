@@ -50,6 +50,8 @@ export interface Task {
   owner: string | null
   due: string | null
   done: boolean
+  /** Urgencia (migration 0040). */
+  priority: TaskPriority
   created_at: string
 }
 
@@ -263,12 +265,48 @@ export interface AppSettings {
   /** Troca a dica mostrada na Home sozinha a cada N horas (mesma dica pra todo mundo). */
   tips_rotate_enabled: boolean
   tips_rotate_hours: number
-  /** Freios de gasto com IA (Config > Admin). */
+  /** Freios de gasto com IA (Config > Admin). Valores em USD sao de gasto REAL (migration 0038). */
   ai_enabled: boolean
   ai_daily_usd_per_user: number
   ai_monthly_usd_global: number
+  /** Protecao anti-abuso: chamadas por minuto por usuario (uma nota sao 3 ou 4 chamadas). */
   ai_rate_per_min: number
   ai_daily_alert_usd: number
+  ai_notes_per_hour_per_user: number
+  ai_audio_minutes_per_day_per_user: number
+  /** Cobranca de cada provedor: 'free' nao conta como gasto real. */
+  provider_billing: Record<string, 'paid' | 'free'>
+  /** Limites de plano/credito de cada provedor (tier gratuito do Groq, credito do AssemblyAI...). */
+  provider_limits: ProviderLimits
+  /** Disjuntor aberto por provedor (credito esgotado, chave recusada). */
+  ai_breaker: Record<string, { code: string; until: string; since: string }>
+}
+
+export interface ProviderLimits {
+  groq?: {
+    requests_min?: number
+    requests_day?: number
+    audio_seconds_hour?: number
+    audio_seconds_day?: number
+    fonte?: string
+  }
+  assemblyai?: { credit_usd?: number; fonte?: string }
+  anthropic?: { balance_usd?: number | null; balance_set_at?: string | null; fonte?: string }
+}
+
+/** Problema que so o administrador resolve (credito esgotado, limite atingido...). */
+export interface AdminAlert {
+  id: string
+  code: string
+  severity: 'warning' | 'error' | 'critical'
+  title: string
+  detail: Record<string, unknown> | null
+  occurrences: number
+  affected_users: string[]
+  first_seen_at: string
+  last_seen_at: string
+  resolved_at: string | null
+  resolved_by: string | null
 }
 
 /** Linha agregada usada no painel de administrador. */

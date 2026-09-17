@@ -15,6 +15,8 @@ export interface AuditLogRow {
   severity: AuditSeverity
   category: AuditCategory
   source: string
+  /** Codigo do problema (desde 17/09/2026). Linhas antigas: null -- o banco deduz pelo texto. */
+  code: string | null
   message: string
   detail: Record<string, unknown> | null
   user_id: string | null
@@ -84,6 +86,10 @@ export function logSilentError(source: string, err: unknown): void {
 
 /* ---------------------------------------------------------------------------
  * Leitura (somente admin -- pagina /admin/audit)
+ *
+ * Desde 17/09/2026 a tela agrupa por PROBLEMA (codigo) e os numeros saem do banco (RPC
+ * audit_summary, migration 0039). Antes os KPIs contavam so os 50 registros carregados e o mesmo
+ * problema aparecia como dezenas de linhas soltas.
  * ------------------------------------------------------------------------- */
 
 export interface AuditLogFilters {
@@ -92,48 +98,78 @@ export interface AuditLogFilters {
   severities?: AuditSeverity[]
   categories?: AuditCategory[]
   search?: string
-  /** Default false: um evento marcado como resolvido some da lista (senao a tela so acumula
-   *  pra sempre, mesmo depois do bug corrigido). Ligar pra ver o historico completo. */
+  /** Default false: resolvido some da lista. Ligar para ver o historico completo. */
   includeResolved?: boolean
 }
 
-export interface AuditLogCursor {
-  created_at: string
-  id: string
+export interface AuditGroup {
+  /** Codigo do problema, ou 'SEM_CODIGO' (agrupado por `pattern`, a mensagem sem numeros). */
+  code: string
+  pattern: string | null
+  occurrences: number
+  open: number
+  users: number
+  severity: AuditSeverity
+  first_at: string
+  last_at: string
+  sources: string[]
+  sample: string
 }
 
-const PAGE_SIZE = 50
+export interface AuditSummary {
+  totals: { events: number; errors: number; critical: number; users: number }
+  groups: AuditGroup[]
+}
 
-/**
- * Paginacao por CURSOR composto (created_at, id), nao por offset: sob uma rajada de erro,
- * varias linhas podem ter o mesmissimo created_at (mesmo milissegundo) -- cursor so em
- * created_at pularia ou duplicaria linhas nessa fronteira.
- */
-export async function listAuditLog(
-  filters: AuditLogFilters,
-  cursor?: AuditLogCursor,
-): Promise<AuditLogRow[]> {
-  if (!supabase) return []
-  let q = supabase
-    .from('audit_log')
-    .select('*')
-    .gte('created_at', filters.from)
-    .lte('created_at', filters.to)
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .limit(PAGE_SIZE)
-
-  if (filters.severities?.length) q = q.in('severity', filters.severities)
-  if (filters.categories?.length) q = q.in('category', filters.categories)
-  if (filters.search?.trim()) q = q.ilike('message', `%${filters.search.trim()}%`)
-  if (!filters.includeResolved) q = q.is('resolved_at', null)
-  if (cursor) {
-    q = q.or(`created_at.lt.${cursor.created_at},and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})`)
+export async function getAuditSummary(f: AuditLogFilters): Promise<AuditSummary> {
+  if (!supabase) return { totals: { events: 0, errors: 0, critical: 0, users: 0 }, groups: [] }
+  const { data, error } = await supabase.rpc('audit_summary', {
+    p_from: f.from,
+    p_to: f.to,
+    p_severities: f.severities?.length ? f.severities : null,
+    p_categories: f.categories?.length ? f.categories : null,
+    p_search: f.search?.trim() || null,
+    p_include_resolved: !!f.includeResolved,
+  })
+  if (error) throw error
+  const s = data as AuditSummary
+  return {
+    totals: {
+      events: Number(s.totals.events),
+      errors: Number(s.totals.errors),
+      critical: Number(s.totals.critical),
+      users: Number(s.totals.users),
+    },
+    groups: (s.groups ?? []).map((g) => ({ ...g, occurrences: Number(g.occurrences), open: Number(g.open), users: Number(g.users) })),
   }
+}
 
-  const { data, error } = await q
+export async function listAuditOccurrences(g: AuditGroup, f: AuditLogFilters, limit = 100): Promise<AuditLogRow[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase.rpc('audit_occurrences', {
+    p_code: g.code,
+    p_pattern: g.pattern ?? '',
+    p_from: f.from,
+    p_to: f.to,
+    p_include_resolved: !!f.includeResolved,
+    p_limit: limit,
+  })
   if (error) throw error
   return (data ?? []) as AuditLogRow[]
+}
+
+/** Resolve (ou reabre) todas as ocorrencias do grupo no periodo. Devolve quantas mudaram. */
+export async function resolveAuditGroup(g: AuditGroup, f: AuditLogFilters, resolve: boolean): Promise<number> {
+  if (!supabase) return 0
+  const { data, error } = await supabase.rpc('audit_resolve_group', {
+    p_code: g.code,
+    p_pattern: g.pattern ?? '',
+    p_from: f.from,
+    p_to: f.to,
+    p_resolve: resolve,
+  })
+  if (error) throw error
+  return Number(data ?? 0)
 }
 
 /** Marca uma ou mais linhas como resolvidas -- somem da lista padrao (includeResolved=false). */
@@ -154,20 +190,4 @@ export async function unresolveAuditLog(ids: string[]): Promise<void> {
     .update({ resolved_at: null, resolved_by: null })
     .in('id', ids)
   if (error) throw error
-}
-
-export interface AuditLogSummary {
-  total: number
-  bySeverity: Record<AuditSeverity, number>
-  distinctUsers: number
-}
-
-export function summarizeAuditLog(rows: AuditLogRow[]): AuditLogSummary {
-  const bySeverity: Record<AuditSeverity, number> = { info: 0, warning: 0, error: 0, critical: 0 }
-  const users = new Set<string>()
-  for (const r of rows) {
-    bySeverity[r.severity]++
-    if (r.user_id) users.add(r.user_id)
-  }
-  return { total: rows.length, bySeverity, distinctUsers: users.size }
 }

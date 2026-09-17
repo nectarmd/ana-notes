@@ -68,9 +68,11 @@ const GUARD =
  */
 const BASE_SYSTEM =
   'Voce e um assistente executivo que trabalha sobre transcricoes de reunioes, em portugues do Brasil.' +
+  // Sem esta frase o Haiku espelhava o prompt (escrito sem acento) e devolvia "reuniao", "decisoes"...
+  ' Escreva sempre com a acentuacao correta do portugues (reunião, decisão, próximos, não).' +
   ' Nunca invente informacoes: use apenas o material fornecido. Siga exatamente o formato pedido na instrucao.' +
   ' Formatacao: texto plano, sem negrito, italico ou codigo (nunca use **, __, * ou `); o unico markdown aceito' +
-  ' e o pedido explicitamente na instrucao (titulos com # ou ##, bullets comecando com "- ").' +
+  ' e o pedido explicitamente na instrucao (titulos com #, ## ou ###, bullets comecando com "- ").' +
   GUARD
 
 function wrap(transcript: string): string {
@@ -97,13 +99,68 @@ function themeHint(template?: string, context?: string): string {
 
 // Instrucoes compartilhadas entre o fluxo normal e a regeneracao pelo administrador: uma nota
 // regenerada precisa sair IGUAL a uma que deu certo de primeira.
+//
+// Formato revisado em 17/09/2026 (pedido do administrador): o resumo rapido era uma lista solta de
+// 5 a 8 bullets, sem contexto nem ligacao entre os pontos. Agora tem secoes fixas que a tela
+// (SummaryView) desenha como blocos, e cada ponto diz por que importa. Os titulos vao COM acento
+// porque o modelo os copia literalmente.
 const summaryInstruction = (hint: string) =>
-  `Resuma a reuniao em 5 a 8 bullets curtos e objetivos comecando com "- ", destacando decisoes e proximos passos.` +
-  ' Este e o resumo rapido: va direto ao ponto, uma ideia por bullet, sem elaborar ou justificar' +
-  ` (o detalhamento fica para outro campo, gerado separadamente).${hint}`
+  'Escreva o RESUMO RAPIDO da reuniao em markdown, com estas secoes, nesta ordem e com estes titulos exatos:\n' +
+  '## Visão geral\n' +
+  'Um paragrafo de 2 frases (no maximo 50 palavras): do que se tratou e o principal resultado.\n' +
+  '## Pontos principais\n' +
+  'De 4 a 6 bullets no formato "- Tema curto: explicacao", cada um com no maximo 30 palavras, com os nomes, numeros,' +
+  ' valores e datas citados e por que o ponto importa ou a qual outro ponto ele se liga.\n' +
+  '## Decisões\n' +
+  'Ate 5 bullets "- " curtos so com o que ficou DECIDIDO (acordos, escolhas); tarefas vao em Próximos passos.' +
+  ' Omita a secao se nada foi decidido.\n' +
+  '## Próximos passos\n' +
+  'Ate 6 bullets "- Acao — responsavel — prazo" (responsavel e prazo so quando citados). Omita a secao se nao houver.\n' +
+  'Se o tema da nota pedir uma recomendacao, termine com "## Recomendação" em 1 ou 2 frases.' +
+  ' Seja fiel aos dados, sem suposicoes, nao repita o mesmo ponto em duas secoes e nao deixe linhas em branco entre bullets.' +
+  ` Este e o resumo RAPIDO, para ler em 1 minuto: o detalhamento fica para outro campo, gerado separadamente.${hint}`
 
+// Sem "id" e "done" no formato pedido: os dois eram descartados (normalizeActionItems gera UUID e
+// done=false) e so custavam tokens de saida. "priority" alimenta a urgencia na tela de Tarefas.
+// Teto de 15 itens: numa reuniao de 1 h o modelo listava tudo, estourava os 1000 tokens, o JSON
+// chegava cortado e a nota ficava SEM nenhum item (achado no teste de 17/09/2026).
 const ACTION_ITEMS_INSTRUCTION =
-  'Extraia os action items dos dados. Responda APENAS com um array JSON de objetos {"id":string,"text":string,"owner":string|null,"due":string|null,"done":false}. Se nao houver, retorne [].'
+  'Extraia os action items dos dados: no maximo 15, os mais importantes. Responda APENAS com um array JSON de objetos' +
+  ' {"text":string,"owner":string|null,"due":string|null,"priority":"high"|"normal"|"low"}.' +
+  ' "text" comeca com verbo, tem no maximo 20 palavras e se entende sozinho, fora da reuniao.' +
+  ' "owner" e "due" so quando citados (senao null).' +
+  ' "priority": "high" se foi tratado como urgente, bloqueante ou com prazo curto; "low" se opcional ou sem pressa;' +
+  ' senao "normal". Se nao houver, retorne [].'
+const ACTION_ITEMS_MAX_TOKENS = 2000
+
+// Folga para reunioes longas: o formato pede ~500 palavras, mas cortar no meio perde "Próximos passos".
+const SUMMARY_MAX_TOKENS = 1600
+
+// Decisoes e proximos passos vem ANTES dos temas: sao o que mais se consulta depois, e numa reuniao
+// longa o detalhamento dos temas consumia todo o limite e cortava justamente essas secoes finais
+// (teste de 17/09/2026: 4000 tokens acabaram dentro de "Decisões e combinados").
+const DETAILED_MAX_TOKENS = 6000
+const DETAILED_INSTRUCTION =
+  'Voce e um consultor senior. Gere o RESUMO DETALHADO da reuniao em markdown, com estas secoes, nesta ordem e com estes titulos exatos:\n' +
+  '## Visão geral\n' +
+  'Um paragrafo de 3 a 5 frases: objetivo, participantes ou papeis citados, contexto e desfecho.\n' +
+  '## Decisões e combinados\n' +
+  'Bullets "- " com o que ficou decidido ou acordado.\n' +
+  '## Próximos passos\n' +
+  'Bullets "- Acao — responsavel — prazo" (responsavel e prazo so quando citados).\n' +
+  '## Pontos discutidos\n' +
+  'Para cada tema relevante (de 3 a 7), um subtitulo "### Nome do tema" seguido de ate 5 bullets "- " objetivos (no maximo' +
+  ' 2 linhas cada) com o que foi dito: argumentos, numeros, valores, datas, exemplos, divergencias e quem defendeu o que,' +
+  ' quando identificavel. Quando o tema se relacionar a outro (causa, dependencia, impacto), termine com o bullet' +
+  ' "- Ligação: ...".\n' +
+  '## Riscos e pontos de atenção\n' +
+  'Bullets "- " com riscos, duvidas em aberto e dependencias citadas.\n' +
+  '## Sugestões\n' +
+  'De 2 a 5 recomendacoes praticas SUAS, baseadas so no que foi discutido (uma pergunta a esclarecer, um risco a' +
+  ' mitigar, um dado a levantar). Cada uma comeca com verbo.\n' +
+  'Omita qualquer secao (exceto Visão geral e Pontos discutidos) que ficaria vazia. Fatos so dos dados: as sugestoes' +
+  ' sao a unica opiniao permitida e ficam so na secao Sugestões. Garanta que todas as secoes caibam: prefira bullets' +
+  ' curtos a cortar o final.'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -209,6 +266,35 @@ function extractJson<T>(text: string, fallback: T): T {
 }
 
 /**
+ * Lista de itens de acao, aproveitando os itens COMPLETOS de uma resposta cortada no limite de
+ * tokens. Antes, um JSON truncado virava [] e a nota perdia todos os itens, inclusive os que ja
+ * tinham chegado inteiros.
+ */
+function extractItemArray(text: string): unknown[] {
+  const start = text.indexOf('[')
+  if (start < 0) return []
+  const body = text.slice(start)
+  try {
+    const end = body.lastIndexOf(']')
+    if (end > 0) {
+      const parsed = JSON.parse(body.slice(0, end + 1))
+      if (Array.isArray(parsed)) return parsed
+    }
+  } catch {
+    /* cortado: tenta salvar abaixo */
+  }
+  for (let cut = body.lastIndexOf('}'); cut > 0; cut = body.lastIndexOf('}', cut - 1)) {
+    try {
+      const parsed = JSON.parse(body.slice(0, cut + 1) + ']')
+      if (Array.isArray(parsed)) return parsed
+    } catch {
+      /* tenta o fechamento anterior */
+    }
+  }
+  return []
+}
+
+/**
  * IDs dos itens vinham DIRETO do modelo ("1", "2"...): repetidos entre notas, colidiam como chave na
  * lista de Tarefas (que junta itens de todas as notas). Aqui cada item ganha um UUID proprio e os
  * campos sao saneados -- um item sem texto nao vira tarefa fantasma.
@@ -222,13 +308,14 @@ function normalizeActionItems(raw: unknown): Array<Record<string, unknown>> {
       const o = it as Record<string, unknown>
       const owner = typeof o.owner === 'string' && o.owner.trim() ? o.owner.trim().slice(0, 60) : null
       const due = typeof o.due === 'string' && o.due.trim() ? o.due.trim().slice(0, 30) : null
+      const priority = o.priority === 'high' || o.priority === 'low' ? o.priority : 'normal'
       return {
         id: crypto.randomUUID(),
         text: String(o.text).trim().slice(0, 500),
         owner,
         due,
         done: false,
-        priority: 'normal',
+        priority,
       }
     })
 }
@@ -262,8 +349,12 @@ const jsonResponse = (obj: unknown) =>
  * no meio do processamento, 16/09/2026). So por chamada de servico (CRON_SECRET) -- e acao do
  * administrador, entao nao passa pelo freio do usuario, mas o gasto e contabilizado na conta do
  * dono da nota, como se ele mesmo tivesse processado.
+ *
+ * `dry`: gera e DEVOLVE sem gravar nada na nota (nem log de auditoria) -- para o administrador
+ * conferir um formato de prompt novo com uma reuniao real antes de ele chegar aos usuarios. Com
+ * `withDetailed`, tambem gera o resumo detalhado.
  */
-async function regenerateNote(noteId: string, force: boolean): Promise<Response> {
+async function regenerateNote(noteId: string, force: boolean, dry = false, withDetailed = false): Promise<Response> {
   const admin = adminClient()
   if (!admin) return errorResponse('BUDGET_UNAVAILABLE', { source: 'edge:ai.regenerate', technical: 'sem service role' })
 
@@ -275,7 +366,7 @@ async function regenerateNote(noteId: string, force: boolean): Promise<Response>
   if (error || !note) {
     return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai.regenerate', technical: `nota ${noteId} nao encontrada: ${error?.message ?? ''}` })
   }
-  if (!force && String(note.summary ?? '').trim()) {
+  if (!force && !dry && String(note.summary ?? '').trim()) {
     return jsonResponse({ ok: true, skipped: 'nota ja tem resumo', note_id: noteId })
   }
   if (!String(note.transcript ?? '').trim()) {
@@ -289,10 +380,19 @@ async function regenerateNote(noteId: string, force: boolean): Promise<Response>
   if (dataBlock.length >= CACHE_MIN_CHARS) block.cache_control = { type: 'ephemeral' }
 
   try {
-    const summary = (await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: summaryInstruction(hint) }], 800, meta)).trim()
+    const summary = (await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: summaryInstruction(hint) }], SUMMARY_MAX_TOKENS, meta)).trim()
     meta.task = 'action_items'
-    const itemsText = await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: ACTION_ITEMS_INSTRUCTION }], 1000, meta)
-    const actionItems = normalizeActionItems(extractJson(itemsText, []))
+    const itemsText = await anthropic(HAIKU, BASE_SYSTEM, [block, { type: 'text', text: ACTION_ITEMS_INSTRUCTION }], ACTION_ITEMS_MAX_TOKENS, meta)
+    const actionItems = normalizeActionItems(extractItemArray(itemsText))
+
+    if (dry) {
+      let detailed: string | null = null
+      if (withDetailed) {
+        meta.task = 'detailed'
+        detailed = (await anthropic(SONNET, BASE_SYSTEM, [block, { type: 'text', text: DETAILED_INSTRUCTION + hint }], DETAILED_MAX_TOKENS, meta)).trim()
+      }
+      return jsonResponse({ ok: true, dry: true, note_id: noteId, summary, action_items: actionItems, detailed })
+    }
 
     const { error: upErr } = await admin
       .from('notes')
@@ -330,7 +430,7 @@ Deno.serve(async (req) => {
       if (!isServiceCall(req)) {
         return errorResponse('AI_BAD_REQUEST', { source: 'edge:ai', technical: 'regenerate_note sem x-cron-secret valido' })
       }
-      return await regenerateNote(String(body.note_id ?? ''), body.force === true)
+      return await regenerateNote(String(body.note_id ?? ''), body.force === true, body.dry === true, body.detailed === true)
     }
 
     userId = await callerId(req)
@@ -379,18 +479,18 @@ Deno.serve(async (req) => {
     }
 
     if (task === 'summary') {
-      const text = await askOnTranscript(HAIKU, summaryInstruction(hint), 800)
+      const text = await askOnTranscript(HAIKU, summaryInstruction(hint), SUMMARY_MAX_TOKENS)
       out = { summary: text.trim() }
     } else if (task === 'detailed') {
       const text = await askOnTranscript(
         SONNET,
-        `Voce e um consultor senior. Gere um resumo DETALHADO e inteligente da reuniao em markdown, com as secoes: ## Visao geral, ## Pontos discutidos, ## Decisoes, ## Riscos, ## Proximos passos. Seja fiel aos dados.${hint}`,
-        2500,
+        DETAILED_INSTRUCTION + hint,
+        DETAILED_MAX_TOKENS,
       )
       out = { detailed: text.trim() }
     } else if (task === 'action_items') {
-      const text = await askOnTranscript(HAIKU, ACTION_ITEMS_INSTRUCTION, 1000)
-      out = { actionItems: normalizeActionItems(extractJson(text, [])) }
+      const text = await askOnTranscript(HAIKU, ACTION_ITEMS_INSTRUCTION, ACTION_ITEMS_MAX_TOKENS)
+      out = { actionItems: normalizeActionItems(extractItemArray(text)) }
     } else if (task === 'analysis') {
       const text = await askOnTranscript(
         SONNET,

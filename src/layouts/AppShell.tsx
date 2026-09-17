@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Phone, Settings as SettingsIcon, Sparkles, Mic, ListChecks, CalendarDays, LogOut, PanelLeft, PanelLeftClose, Users, Share2, Plug, BarChart3, Crown } from 'lucide-react'
+import { Home, Settings as SettingsIcon, Sparkles, Mic, ListChecks, CalendarDays, LogOut, PanelLeft, PanelLeftClose, Users, Share2, Plug, BarChart3 } from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
 import { useAuth } from '../auth/AuthProvider'
 import { Logo } from '../components/Logo'
@@ -17,7 +17,7 @@ import { Maintenance } from '../pages/Maintenance'
 import { HelpAssistant } from '../pages/HelpAssistant'
 import { useT } from '../lib/i18n'
 
-const HIDE_MOBILE_NAV_ON = ['/nota/', '/capturar', '/discador']
+const HIDE_MOBILE_NAV_ON = ['/nota/', '/capturar']
 
 interface Item {
   to: string
@@ -33,30 +33,18 @@ const ITEMS: Item[] = [
   { to: '/', icon: <Home size={20} />, labelKey: 'nav.notes' },
   { to: '/tarefas', icon: <ListChecks size={20} />, labelKey: 'nav.tasks' },
   { to: '/agenda', icon: <CalendarDays size={20} />, labelKey: 'nav.agenda' },
-  {
-    to: '/discador',
-    icon: <Phone size={20} />,
-    labelKey: 'nav.dialer',
-    adminOnly: true,
-    tagKey: 'nav.unavailable',
-    tagVariant: 'muted',
-  },
 ]
 
-/** Mesma secao "Mais funcoes" que existe no Config, atalhada na sidebar do desktop. */
+/**
+ * Mesma secao "Mais funcoes" que existe no Config, atalhada na sidebar do desktop.
+ * Discador e Gerente/Senior sairam em 17/09/2026 (pedido do administrador): so a interface foi
+ * removida, as tabelas do banco continuam.
+ */
 const MORE_ITEMS: Item[] = [
   { to: '/amigos', icon: <Users size={20} />, labelKey: 'settings.friends' },
   { to: '/compartilhados', icon: <Share2 size={20} />, labelKey: 'settings.sharedWithMe' },
-  { to: '/conectores', icon: <Plug size={20} />, labelKey: 'settings.connectors' },
-  { to: '/analytics', icon: <BarChart3 size={20} />, labelKey: 'settings.analytics' },
-  {
-    to: '/gerente',
-    icon: <Crown size={20} />,
-    labelKey: 'settings.manager',
-    adminOnly: true,
-    tagKey: 'nav.pro',
-    tagVariant: 'accent',
-  },
+  { to: '/conectores', icon: <Plug size={20} />, labelKey: 'settings.connectors', tagKey: 'nav.soon' },
+  { to: '/analytics', icon: <BarChart3 size={20} />, labelKey: 'settings.analytics', tagKey: 'nav.soon' },
 ]
 
 function SidebarLink({ item, label, tag }: { item: Item; label: string; tag?: string }) {
@@ -209,9 +197,7 @@ function NavItem({ to, icon, label }: { to: string; icon: React.ReactNode; label
  * Sempre 2 itens de cada lado do microfone, para TODO usuario. Antes o segundo slot da esquerda
  * era o Discador (admin-only): quem nao e admin via um menu de 4 itens com o microfone fora do
  * centro e um "buraco" ao lado de Notas -- parecia icone faltando (relato de 2026-09-04, PWA
- * iPhone). Tarefas ja era item principal na sidebar do desktop e vale para todo mundo; o
- * Discador (so uma tela explicando que gravar ligacao e impossivel no celular) segue no menu
- * do desktop e pela rota /discador.
+ * iPhone). O Discador foi removido de vez em 17/09/2026.
  */
 function BottomNav() {
   const t = useT()

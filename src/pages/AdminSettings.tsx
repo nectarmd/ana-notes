@@ -75,7 +75,7 @@ export function AdminSettings() {
         ) : (
           <>
             <div className="alert-error text-xs mb-3">
-              Ao publicar, o app fica bloqueado para todos (voce, admin, continua com acesso).
+              Ao publicar, o app fica bloqueado para todos (você, como admin, continua com acesso).
             </div>
             <button className="btn-primary w-full" onClick={() => saveMaintenance(true)} disabled={savingMaint}>
               {savingMaint ? <Spinner /> : okMaint ? <Check size={18} /> : null}

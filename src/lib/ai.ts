@@ -262,9 +262,9 @@ export async function askHelp(question: string, lang: 'pt' | 'en' | 'es' = 'pt')
   if (config.mockMode) {
     await delay(500)
     const msg: Record<string, string> = {
-      pt: 'Só consigo ajudar com dúvidas sobre o uso do aplicativo. Tente perguntar sobre gravar, transcrever, compartilhar, pastas, discador ou configurações.',
-      en: 'I can only help with questions about using the app. Try asking about recording, transcribing, sharing, folders, the dialer or settings.',
-      es: 'Solo puedo ayudar con dudas sobre el uso de la app. Prueba a preguntar sobre grabar, transcribir, compartir, carpetas, el marcador o los ajustes.',
+      pt: 'Só consigo ajudar com dúvidas sobre o uso do aplicativo. Tente perguntar sobre gravar, transcrever, compartilhar, pastas, tarefas ou configurações.',
+      en: 'I can only help with questions about using the app. Try asking about recording, transcribing, sharing, folders, tasks or settings.',
+      es: 'Solo puedo ayudar con dudas sobre el uso de la app. Prueba a preguntar sobre grabar, transcribir, compartir, carpetas, tareas o los ajustes.',
     }
     return msg[lang] ?? msg.pt
   }

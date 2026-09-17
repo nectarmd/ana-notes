@@ -30,6 +30,7 @@ import {
   canKeepScreenAwake,
 } from '../lib/useRecorder'
 import { isElectron } from '../lib/electron'
+import { SystemAudioHelp } from '../components/SystemAudioHelp'
 import { useToast } from '../components/Toast'
 import { db, config } from '../lib/api'
 import { uid } from '../lib/db'
@@ -56,9 +57,11 @@ import type { Note, NoteSourceType } from '../lib/types'
 
 type Mode = 'record' | 'meeting' | 'upload' | 'video' | 'file' | 'link' | 'image'
 
-const MAX_VIDEO_MB = 25
+// Mesmo limite do servidor (transcribe: MAX_FILE_MB). Acima de 24 MB o arquivo vai para o
+// AssemblyAI, que aceita video; o limite antigo de 25 MB era do Whisper.
+const MAX_VIDEO_MB = 60
 
-const STEPS = ['Transcrevendo audio', 'Gerando resumo', 'Extraindo action items', 'Finalizando'] as const
+const STEPS = ['Transcrevendo áudio', 'Gerando resumo', 'Extraindo itens de ação', 'Finalizando'] as const
 
 /** Intervalo dos checkpoints de gravacao em andamento (ver useEffect de checkpoint abaixo). */
 const CHECKPOINT_MS = 20_000
@@ -196,6 +199,7 @@ export function Capture() {
       severity: 'warning',
       category: 'silent',
       source: 'client:recorder',
+      code: recorder.systemAudioMissing ? 'RECORDER_SYSTEM_AUDIO_MISSING' : 'RECORDER_SYSTEM_AUDIO_MUTED',
       message: recorder.systemAudioMissing
         ? 'Reunião no PC: áudio do sistema AUSENTE (gravando só o microfone).'
         : 'Reunião no PC: áudio do sistema MUDO por 30s+ (gravando só o microfone).',
@@ -308,7 +312,7 @@ export function Capture() {
         context,
         diarize,
         duration: recSeconds,
-        fallbackTitle: mode === 'meeting' ? `Reuniao ${today}` : `Gravacao ${today}`,
+        fallbackTitle: mode === 'meeting' ? `Reunião ${today}` : `Gravação ${today}`,
         skipAudioStore: false,
         skipActionItems: false,
         savedAt: new Date().toISOString(),
@@ -345,7 +349,7 @@ export function Capture() {
       type: isVideo ? 'video' : 'upload',
       audioBlob: file,
       duration: 0,
-      fallbackTitle: file.name.replace(/\.[^.]+$/, '') || 'Audio compartilhado',
+      fallbackTitle: file.name.replace(/\.[^.]+$/, '') || 'Áudio compartilhado',
       skipAudioStore: isVideo,
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -702,11 +706,11 @@ export function Capture() {
           type: 'recording',
           audioBlob: res.blob,
           duration: res.durationSeconds,
-          fallbackTitle: `Gravacao ${today}`,
+          fallbackTitle: `Gravação ${today}`,
         })
       } catch {
         setNState('idle')
-        setError('Nao foi possivel finalizar a gravacao. Tente novamente.')
+        setError('Não foi possível finalizar a gravação. Tente novamente.')
       }
       return
     }
@@ -716,7 +720,7 @@ export function Capture() {
       type: 'recording',
       audioBlob: res.blob,
       duration: res.durationSeconds,
-      fallbackTitle: mode === 'meeting' ? `Reuniao ${today}` : `Gravacao ${today}`,
+      fallbackTitle: mode === 'meeting' ? `Reunião ${today}` : `Gravação ${today}`,
     })
   }
 
@@ -750,7 +754,7 @@ export function Capture() {
     }
     if (isVideoFile(file)) {
       if (file.size > MAX_VIDEO_MB * 1024 * 1024) {
-        setError(`Video muito grande. Limite de ${MAX_VIDEO_MB} MB (a IA extrai apenas o audio).`)
+        setError(`Vídeo muito grande. Limite de ${MAX_VIDEO_MB} MB (a IA extrai apenas o áudio).`)
         return
       }
       // Envia o video: o provedor extrai o audio para transcrever. O video NAO e armazenado.
@@ -763,7 +767,7 @@ export function Capture() {
       })
       return
     }
-    setError('Formato nao reconhecido. Envie audio (MP3, M4A, WAV, OGG, WEBM) ou video (MP4, MOV, MKV).')
+    setError('Formato não reconhecido. Envie áudio (MP3, M4A, WAV, OGG, WEBM) ou vídeo (MP4, MOV, MKV).')
   }
 
   async function onUploadAudio(e: React.ChangeEvent<HTMLInputElement>) {
@@ -794,7 +798,7 @@ export function Capture() {
     if (!file) return
     setError(null)
     if (!isSupportedImage(file)) {
-      setError('Formato nao suportado. Envie PNG, JPG, WEBP ou GIF.')
+      setError('Formato não suportado. Envie PNG, JPG, WEBP ou GIF.')
       return
     }
     setFileName(file.name)
@@ -823,7 +827,7 @@ export function Capture() {
       })
     } catch (err) {
       setSubmitting(false)
-      setError(aiError(err, err instanceof Error ? err.message : 'Nao consegui ler esta imagem.'))
+      setError(aiError(err, err instanceof Error ? err.message : 'Não consegui ler esta imagem.'))
     }
   }
 
@@ -854,14 +858,14 @@ export function Capture() {
       setError(
         err instanceof FileError
           ? err.message
-          : 'Nao consegui extrair o conteudo deste arquivo. Verifique o formato e tente de novo.',
+          : 'Não consegui extrair o conteúdo deste arquivo. Verifique o formato e tente de novo.',
       )
       return
     }
     setSubmitting(false)
 
     if (!content.trim()) {
-      setError('Nao consegui extrair texto deste conteudo.')
+      setError('Não consegui extrair texto deste conteúdo.')
       return
     }
 
@@ -886,7 +890,7 @@ export function Capture() {
         </div>
         <h2 className="font-display text-xl font-bold">{STEPS[step]}...</h2>
         <p className="text-content-secondary mt-2 max-w-xs">
-          {stepNote ?? 'A IA esta processando sua nota. Isso leva apenas alguns segundos.'}
+          {stepNote ?? 'A IA está processando sua nota. Isso leva apenas alguns segundos.'}
         </p>
         <div className="flex gap-1.5 mt-6">
           {STEPS.map((_, i) => (
@@ -919,10 +923,10 @@ export function Capture() {
           <ArrowLeft size={18} />
         </button>
         <h1 className="font-display text-xl font-bold">
-          {mode === 'record' && 'Gravar audio'}
-          {mode === 'meeting' && 'Gravar reuniao no PC'}
-          {mode === 'upload' && 'Enviar audio'}
-          {mode === 'video' && 'Enviar video'}
+          {mode === 'record' && 'Gravar áudio'}
+          {mode === 'meeting' && 'Gravar reunião no PC'}
+          {mode === 'upload' && 'Enviar áudio'}
+          {mode === 'video' && 'Enviar vídeo'}
           {mode === 'file' && 'PDF, arquivo ou texto'}
           {mode === 'image' && 'Resumir imagem'}
           {mode === 'link' && 'Link da web'}
@@ -1011,8 +1015,8 @@ export function Capture() {
 
       {!meetingBlocked && !recActive && (
         <p className="text-xs text-content-muted mb-6">
-          Todos os campos acima sao <span className="text-content-secondary font-medium">opcionais</span>. Se
-          nao preencher, a IA gera a transcricao e o resumo normalmente, sem contexto previo.
+          Todos os campos acima são <span className="text-content-secondary font-medium">opcionais</span>. Sem
+          eles, a IA gera a transcrição e o resumo normalmente.
         </p>
       )}
 
@@ -1025,12 +1029,12 @@ export function Capture() {
           <span
             className={`h-6 w-11 rounded-full transition-colors relative shrink-0 ${diarize ? 'bg-brand-solid' : 'bg-surface-border'}`}
           >
-            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${diarize ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${diarize ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </span>
           <span className="min-w-0">
             <span className="block font-medium text-sm">Identificar quem falou</span>
             <span className="block text-xs text-content-muted">
-              Separa os falantes na transcricao. Mais preciso, com custo um pouco maior.
+              Separa as falas de cada pessoa na transcrição (Falante A, Falante B...). Leva um pouco mais de tempo.
             </span>
           </span>
         </button>
@@ -1096,6 +1100,16 @@ export function Capture() {
                   Funciona com <span className="text-content-primary font-medium">Meet, WhatsApp, Zoom, Teams</span> ou
                   qualquer app — mesmo de fone.
                 </p>
+                {isElectron() ? (
+                  <ol className="text-content-secondary text-sm mt-3 space-y-2 list-decimal list-inside">
+                    <li>Abra a reunião ou chamada no computador — o som dela precisa sair pelo PC (fone ou caixa de som).</li>
+                    <li>
+                      Clique em <span className="text-content-primary font-medium">Iniciar</span>: o ANA grava o som do
+                      computador e o seu microfone juntos, sem precisar escolher tela.
+                    </li>
+                    <li>Quando a reunião terminar, encerre por aqui para gerar a transcrição e o resumo.</li>
+                  </ol>
+                ) : (
                 <ol className="text-content-secondary text-sm mt-3 space-y-2 list-decimal list-inside">
                   <li>Abra a reunião ou chamada que você quer gravar.</li>
                   <li>Clique em "Iniciar" abaixo e escolha o que compartilhar:</li>
@@ -1114,9 +1128,10 @@ export function Capture() {
                     do navegador (na tela inteira, o "áudio do sistema").
                   </li>
                 </ol>
+                )}
 
                 {/* Navegadores suportados: so Chromium entrega o audio da aba. */}
-                {supportsTabAudio() ? (
+                {isElectron() ? null : supportsTabAudio() ? (
                   <p className="text-xs text-content-muted mt-3 flex items-start gap-1.5">
                     <Info size={13} className="shrink-0 mt-0.5" />
                     <span>
@@ -1142,7 +1157,7 @@ export function Capture() {
                   onClick={() => withConsent(startMeeting)}
                   disabled={!supportsTabAudio()}
                 >
-                  <Headphones size={18} /> Iniciar gravacao da reuniao
+                  <Headphones size={18} /> Iniciar gravação da reunião
                 </button>
               </div>
             )
@@ -1153,11 +1168,11 @@ export function Capture() {
               </div>
               <h3 className="font-display font-semibold text-lg">Pronto para gravar</h3>
               <p className="text-content-secondary mt-2 text-sm">
-                Preencha titulo, tema e contexto acima (opcionais) e inicie quando quiser.
+                Preencha título, tema e contexto acima (opcionais) e inicie quando quiser.
               </p>
               {useNative && (
                 <p className="text-xs text-accent mt-2">
-                  A gravacao continua mesmo com a tela apagada.
+                  A gravação continua mesmo com a tela apagada.
                 </p>
               )}
               {/* Navegador/PWA no celular (iPhone em especial): o sistema tira o microfone de
@@ -1171,7 +1186,7 @@ export function Capture() {
                 </p>
               )}
               <button className="btn-primary w-full mt-5" onClick={() => withConsent(startRecord)}>
-                <Mic size={18} /> Iniciar gravacao
+                <Mic size={18} /> Iniciar gravação
               </button>
             </div>
           ) : recorder.error ? (
@@ -1218,8 +1233,10 @@ export function Capture() {
                   ? 'Pausado'
                   : mode === 'meeting'
                     ? recorder.systemAudioMissing
-                      ? 'Gravando so o seu microfone...'
-                      : 'Gravando reuniao (aba + microfone)...'
+                      ? 'Gravando só o seu microfone...'
+                      : isElectron()
+                        ? 'Gravando reunião (som do PC + microfone)...'
+                        : 'Gravando reunião (aba + microfone)...'
                     : 'Gravando...'}
               </p>
               {(() => {
@@ -1264,55 +1281,19 @@ export function Capture() {
                 </div>
               )}
 
-              {mode === 'meeting' && recorder.systemAudioMissing && (
-                <div className="alert-error text-sm mt-3 max-w-sm text-left">
-                  {isElectron() ? (
-                    <p>
-                      <span className="font-medium">Estou gravando só a sua voz.</span> Não recebi o áudio do
-                      computador (a voz da outra pessoa). Confirme que a chamada está{' '}
-                      <span className="font-medium">tocando no PC</span> e tente captar de novo — funciona com fone
-                      de ouvido também.
-                    </p>
-                  ) : (
-                    <p>
-                      <span className="font-medium">Estou gravando só a sua voz.</span> O áudio da reunião não veio —
-                      no diálogo do navegador, escolha a <span className="font-medium">aba da reunião</span> e deixe
-                      marcado <span className="font-medium">"Compartilhar áudio da guia"</span>.
-                    </p>
-                  )}
-                  <button className="btn-primary w-full mt-3" onClick={onAddSystemAudio}>
-                    <Headphones size={16} /> {isElectron() ? 'Tentar captar o áudio do PC' : 'Adicionar áudio da reunião'}
-                  </button>
-                </div>
-              )}
-
+              {mode === 'meeting' && recorder.systemAudioMissing && <SystemAudioHelp kind="missing" onRetry={onAddSystemAudio} />}
               {mode === 'meeting' && !recorder.systemAudioMissing && recorder.systemSilent && (
-                <div className="alert-error text-sm mt-3 max-w-sm text-left">
-                  {isElectron() ? (
-                    <p>
-                      <span className="font-medium">Não estou captando o áudio do computador</span> há mais de 30
-                      segundos. Confirme que o som da chamada está saindo pelo{' '}
-                      <span className="font-medium">dispositivo de áudio padrão do Windows</span> (o fone serve). Sua
-                      voz continua sendo gravada.
-                    </p>
-                  ) : (
-                    <p>
-                      <span className="font-medium">Não estou ouvindo a reunião</span> há mais de 30 segundos. Pode ser
-                      a aba errada. Sua voz continua sendo gravada normalmente.
-                    </p>
-                  )}
-                  <button className="btn-outline w-full mt-3" onClick={onAddSystemAudio}>
-                    <Headphones size={16} /> {isElectron() ? 'Tentar captar de novo' : 'Trocar a aba compartilhada'}
-                  </button>
-                </div>
+                <SystemAudioHelp kind="silent" onRetry={onAddSystemAudio} />
               )}
 
               <p className="text-xs text-content-muted mt-2 max-w-xs text-center">
                 {mode === 'meeting'
-                  ? 'Mantenha a aba da reuniao aberta. Encerrar aqui ou "Parar compartilhamento" finaliza a gravacao.'
+                  ? isElectron()
+                    ? 'Deixe o ANA aberto até o fim da reunião e encerre por aqui.'
+                    : 'Mantenha a aba da reunião aberta. Encerrar aqui ou "Parar compartilhamento" finaliza a gravação.'
                   : isMobileBrowser()
                     ? 'Mantenha o ANA aberto e a tela ligada até encerrar. Em ligações, use o viva-voz para captar as duas vozes.'
-                    : 'Dica: em reunioes por telefone, use o viva-voz para captar melhor as duas vozes.'}
+                    : 'Dica: em reuniões por telefone, use o viva-voz para captar melhor as duas vozes.'}
               </p>
               <RecordingNotice />
             </>
@@ -1328,7 +1309,7 @@ export function Capture() {
           >
             <Upload size={36} className="text-accent" />
             <p className="font-medium">Selecionar arquivo de áudio</p>
-            <p className="text-sm text-content-muted">MP3, M4A, WAV, WEBM</p>
+            <p className="text-sm text-content-muted">MP3, M4A, WAV, OGG, WEBM • até 60 MB e 2 h</p>
           </button>
           <input ref={fileRef} type="file" accept={AUDIO_ACCEPT} className="hidden" onChange={onUploadAudio} />
         </div>
@@ -1342,11 +1323,11 @@ export function Capture() {
           >
             <Video size={36} className="text-accent" />
             <p className="font-medium">Selecionar vídeo</p>
-            <p className="text-sm text-content-muted">MP4, MOV, WEBM • ate {MAX_VIDEO_MB} MB</p>
+            <p className="text-sm text-content-muted">MP4, MOV, WEBM • até {MAX_VIDEO_MB} MB</p>
           </button>
           <input ref={fileRef} type="file" accept={VIDEO_ACCEPT} className="hidden" onChange={onUploadVideo} />
           <p className="text-xs text-content-muted mt-4 max-w-xs text-center">
-            A IA extrai apenas o audio para transcrever. O video nao e armazenado.
+            A IA usa só o som para transcrever. O vídeo não é armazenado.
           </p>
         </div>
       )}
@@ -1364,7 +1345,7 @@ export function Capture() {
           <input ref={fileRef} type="file" accept={TEXT_FILE_ACCEPT} className="hidden" onChange={onFileText} />
           {fileName && (
             <p className="text-xs text-content-muted -mt-1">
-              Arquivo selecionado. O texto do PDF/DOCX e extraido ao clicar em "Processar".
+              Arquivo selecionado. O texto do PDF/DOCX é extraído ao clicar em "Processar".
             </p>
           )}
           <div className="text-center text-content-muted text-sm">ou cole o texto abaixo</div>
@@ -1389,7 +1370,7 @@ export function Capture() {
           >
             <ImageIcon size={32} className="text-accent" />
             <p className="font-medium">{fileName ? 'Trocar imagem' : 'Selecionar imagem'}</p>
-            <p className="text-sm text-content-muted">PNG, JPG, WEBP, GIF • ate {MAX_IMAGE_MB} MB</p>
+            <p className="text-sm text-content-muted">PNG, JPG, WEBP, GIF • até {MAX_IMAGE_MB} MB</p>
             {fileName && <p className="text-sm text-content-secondary truncate max-w-full px-4">{fileName}</p>}
           </button>
           <input ref={fileRef} type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={onPickImage} />
@@ -1399,7 +1380,7 @@ export function Capture() {
             <div className="flex flex-wrap gap-2">
               {[
                 { w: 80, label: 'Curto' },
-                { w: 150, label: 'Medio' },
+                { w: 150, label: 'Médio' },
                 { w: 300, label: 'Longo' },
               ].map((o) => (
                 <button
@@ -1421,8 +1402,8 @@ export function Capture() {
           <p className="text-xs text-content-muted flex items-start gap-1.5">
             <Info size={13} className="shrink-0 mt-0.5" />
             <span>
-              Se a imagem tiver texto (documento, print, foto de pagina), a IA transcreve o texto e depois
-              resume. A imagem nao e armazenada.
+              Se a imagem tiver texto (documento, print, foto de página), a IA transcreve o texto e depois
+              resume. A imagem não é armazenada.
             </span>
           </p>
 
@@ -1449,7 +1430,7 @@ export function Capture() {
             {submitting ? 'Extraindo...' : 'Resumir link'}
           </button>
           <p className="text-xs text-content-muted">
-            A IA abre a pagina, extrai o conteudo principal e gera o resumo.
+            A IA abre a página, extrai o conteúdo principal e gera o resumo.
           </p>
         </div>
       )}

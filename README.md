@@ -29,7 +29,6 @@ Contas de teste:
 - **Narracao (TTS) gratuita** on-device (Web Speech API) do resumo ou da transcricao.
 - **Compartilhar**: WhatsApp, e-mail, PDF, Word, copiar — e com **parceiros cadastrados** (a nota
   aparece direto no app deles).
-- **Discador**: abre o discador do aparelho e grava pelo microfone (viva-voz), com aviso LGPD.
 - **Painel de Administrador** (somente admin): usuarios, notas, gravacoes, transcricoes,
   sugestoes de IA e narracoes por pessoa, com totais e ultima atividade.
 - Tema **claro/escuro** com botao no topo. PWA instalavel.

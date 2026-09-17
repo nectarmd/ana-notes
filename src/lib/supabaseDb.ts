@@ -79,7 +79,7 @@ export const supabaseDb: Db = {
               severity: 'warning',
               category: 'silent',
               source: 'client:auth.sessionRejected',
-              message: authError?.message || 'Sessao gravada existia mas auth.getUser() nao devolveu usuario',
+              message: authError?.message || 'Sessão gravada existia mas auth.getUser() não devolveu usuário',
             })
           }
           return null
@@ -118,20 +118,20 @@ export const supabaseDb: Db = {
         const message = (error.message ?? '').toLowerCase()
         if (message.includes('fetch') || message.includes('network') || message.includes('timeout')) {
           throw new Error(
-            'Nao foi possivel conectar ao Supabase. Verifique as variaveis VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente (Vercel/Netlify) e se o projeto esta ativo.',
+            'Não foi possível conectar ao Supabase. Verifique as variaveis VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no ambiente (Vercel/Netlify) e se o projeto esta ativo.',
           )
         }
         throw new Error('E-mail ou senha invalidos.')
       }
 
       const profile = await this.getCurrentProfile()
-      if (!profile) throw new Error('Perfil nao encontrado.')
+      if (!profile) throw new Error('Perfil não encontrado.')
       return profile
     } catch (e) {
       if (isCorruptedSessionError(e)) {
         purgeAuthStorage()
         throw new Error(
-          'Nao foi possivel conectar ao servidor. Verifique sua conexao e as chaves do Supabase no ambiente de deploy.',
+          'Não foi possível conectar ao servidor. Verifique sua conexão e as chaves do Supabase no ambiente de deploy.',
         )
       }
       throw e
@@ -168,7 +168,7 @@ export const supabaseDb: Db = {
     } catch (e) {
       if (isCorruptedSessionError(e)) {
         purgeAuthStorage()
-        throw new Error('Nao foi possivel conectar ao servidor. Verifique sua conexao e as chaves do Supabase.')
+        throw new Error('Não foi possível conectar ao servidor. Verifique sua conexão e as chaves do Supabase.')
       }
       throw e
     }
@@ -179,7 +179,7 @@ export const supabaseDb: Db = {
       const signInRes = await sb.auth.signInWithPassword({ email, password: input.password })
       if (signInRes.error) {
         throw new Error(
-          'Conta criada, mas nao foi possivel entrar automaticamente. Tente fazer login.',
+          'Conta criada, mas não foi possível entrar automaticamente. Tente fazer login.',
         )
       }
     }
@@ -206,7 +206,7 @@ export const supabaseDb: Db = {
       if (profile) return profile
       await new Promise((r) => setTimeout(r, 400))
     }
-    throw new Error('Conta criada, mas o perfil ainda nao ficou disponivel. Recarregue e tente entrar.')
+    throw new Error('Conta criada, mas o perfil ainda não ficou disponível. Recarregue e tente entrar.')
   },
 
   async signOut() {
@@ -374,7 +374,7 @@ export const supabaseDb: Db = {
       .eq('id', id)
       .select('id')
     if (error) throw error
-    if (!data?.length) throw new Error('Voce nao tem permissao para excluir esta nota.')
+    if (!data?.length) throw new Error('Você não tem permissão para excluir esta nota.')
   },
 
   async logUsage(userId, type, noteId = null) {

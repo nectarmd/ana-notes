@@ -121,7 +121,7 @@ export function Register() {
             <label className="label" htmlFor="phone">{t('reg.phoneLabel')}</label>
             <div className="flex gap-2">
               <select
-                aria-label="Codigo internacional"
+                aria-label="Código internacional"
                 className="input w-28 shrink-0"
                 value={ddi}
                 onChange={(e) => setDdi(e.target.value)}

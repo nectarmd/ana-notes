@@ -6,7 +6,7 @@ export type AppLang = 'pt' | 'en' | 'es'
 const KEY = 'tailor.lang'
 
 export const LANGS: { code: AppLang; label: string }[] = [
-  { code: 'pt', label: 'Portugues (Brasil)' },
+  { code: 'pt', label: 'Português (Brasil)' },
   { code: 'en', label: 'English' },
   { code: 'es', label: 'Espanol' },
 ]
@@ -17,7 +17,7 @@ export function getLang(): AppLang {
 }
 
 export function langLabel(code: AppLang): string {
-  return LANGS.find((l) => l.code === code)?.label ?? 'Portugues (Brasil)'
+  return LANGS.find((l) => l.code === code)?.label ?? 'Português (Brasil)'
 }
 
 export function setLang(l: AppLang): void {

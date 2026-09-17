@@ -14,7 +14,6 @@ import {
   Monitor,
   Video,
   StickyNote,
-  ListChecks,
   Folder as FolderIcon,
   Clock,
   Image as ImageIcon,
@@ -220,7 +219,7 @@ export function Home() {
           const seen = new Set<string>(raw ? JSON.parse(raw) : [])
           const fresh = sharedIds.filter((id) => !seen.has(id))
           if (raw !== null && fresh.length) {
-            notify('Nova transcricao compartilhada', `Voce recebeu ${fresh.length} nota(s).`)
+            notify('Nova transcrição compartilhada', `Você recebeu ${fresh.length} nota(s).`)
           }
           localStorage.setItem('tailor.seenShared', JSON.stringify(sharedIds))
         }
@@ -340,13 +339,6 @@ export function Home() {
           {/* No desktop, os controles vao para o canto superior direito da tela */}
           <div className="flex items-center gap-2 md:fixed md:top-5 md:right-8 md:z-40">
             <button
-              onClick={() => navigate('/tarefas')}
-              aria-label={t('nav.tasks')}
-              className="md:hidden grid place-items-center h-10 w-10 rounded-full bg-surface-elevated border border-surface-border text-content-secondary hover:text-content-primary"
-            >
-              <ListChecks size={18} />
-            </button>
-            <button
               onClick={() => setFolderOpen(true)}
               aria-label="Pastas"
               className="grid place-items-center h-10 w-10 rounded-full bg-surface-elevated border border-surface-border text-content-secondary hover:text-content-primary"
@@ -387,7 +379,7 @@ export function Home() {
       </header>
 
       {/* So no desktop: no mobile (PWA/APK inclusive), aviso+dica aqui em cima empurravam
-          "conversar com todas as reunioes" pra baixo e atrapalhavam o layout -- versao mobile
+          "conversar com todas as reuniões" pra baixo e atrapalhavam o layout -- versao mobile
           fica reposicionada depois daquele botao (abaixo). */}
       <div className="hidden md:block">
         <HomeTip />

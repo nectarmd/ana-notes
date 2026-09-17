@@ -11,7 +11,6 @@ import { Agenda } from './pages/Agenda'
 import { NoteDetail } from './pages/NoteDetail'
 import { MindMapPage } from './pages/MindMap'
 import { Capture } from './pages/Capture'
-import { Dialer } from './pages/Dialer'
 import { Settings } from './pages/Settings'
 import { Admin } from './pages/Admin'
 import { TrashPage } from './pages/Trash'
@@ -28,7 +27,6 @@ import { EditProfile } from './pages/EditProfile'
 import { ApiMonitor } from './pages/ApiMonitor'
 import { AuditLogPage } from './pages/AuditLog'
 import { AdminTips } from './pages/AdminTips'
-import { ManagerDashboard } from './pages/ManagerDashboard'
 import { InstallApp } from './pages/InstallApp'
 import { isElectron } from './lib/electron'
 import type { ReactNode } from 'react'
@@ -103,14 +101,6 @@ export default function App() {
         <Route path="/nota/:id" element={<NoteDetail />} />
         <Route path="/nota/:id/mapa-mental" element={<MindMapPage />} />
         <Route path="/capturar" element={<Capture />} />
-        <Route
-          path="/discador"
-          element={
-            <AdminOnly>
-              <Dialer />
-            </AdminOnly>
-          }
-        />
         <Route path="/config" element={<Settings />} />
         <Route path="/lixeira" element={<TrashPage />} />
         <Route path="/ajuda" element={<Help />} />
@@ -153,14 +143,6 @@ export default function App() {
           element={
             <AdminOnly>
               <AdminTips />
-            </AdminOnly>
-          }
-        />
-        <Route
-          path="/gerente"
-          element={
-            <AdminOnly>
-              <ManagerDashboard />
             </AdminOnly>
           }
         />

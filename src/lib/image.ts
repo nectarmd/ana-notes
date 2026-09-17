@@ -33,7 +33,7 @@ function readAsImage(file: File): Promise<HTMLImageElement> {
     }
     img.onerror = () => {
       URL.revokeObjectURL(url)
-      reject(new Error('Nao consegui abrir a imagem.'))
+      reject(new Error('Não consegui abrir a imagem.'))
     }
     img.src = url
   })
@@ -43,14 +43,14 @@ const toBase64 = (blob: Blob) =>
   new Promise<string>((resolve, reject) => {
     const r = new FileReader()
     r.onload = () => resolve(String(r.result).split(',')[1] ?? '')
-    r.onerror = () => reject(new Error('Nao consegui ler a imagem.'))
+    r.onerror = () => reject(new Error('Não consegui ler a imagem.'))
     r.readAsDataURL(blob)
   })
 
 /** Redimensiona (se preciso) e devolve base64 pronto para a edge function. */
 export async function prepareImage(file: File): Promise<PreparedImage> {
   if (!isSupportedImage(file)) {
-    throw new Error('Formato nao suportado. Use PNG, JPG, WEBP ou GIF.')
+    throw new Error('Formato não suportado. Use PNG, JPG, WEBP ou GIF.')
   }
   if (file.size > MAX_IMAGE_MB * 1024 * 1024) {
     throw new Error(`Imagem muito grande. Limite de ${MAX_IMAGE_MB} MB.`)
@@ -77,11 +77,11 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   canvas.width = width
   canvas.height = height
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Nao consegui processar a imagem.')
+  if (!ctx) throw new Error('Não consegui processar a imagem.')
   ctx.drawImage(img, 0, 0, width, height)
 
   const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.9))
-  if (!blob) throw new Error('Nao consegui processar a imagem.')
+  if (!blob) throw new Error('Não consegui processar a imagem.')
 
   return { media_type: 'image/jpeg', data: await toBase64(blob), width, height }
 }

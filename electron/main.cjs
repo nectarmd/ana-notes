@@ -183,6 +183,18 @@ if (!gotSingleInstanceLock) {
 
     mainWindow.loadURL(APP_URL).catch((err) => log.warn('loadURL inicial falhou:', err))
 
+    // Links para FORA do app (entrar na chamada do Meet/Teams pela Agenda, WhatsApp, baixar o APK)
+    // abrem no navegador padrao. Sem isto o Electron criava uma janela crua dele mesmo, sem barra
+    // de endereco e sem as permissoes de microfone que a chamada precisa. So http(s) e mailto:
+    // nunca file:// nem outros esquemas, que o shell executaria.
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (url.startsWith(APP_URL)) return { action: 'allow' }
+      if (/^(https?:\/\/|mailto:)/i.test(url)) {
+        shell.openExternal(url).catch((err) => log.warn('openExternal falhou:', err))
+      }
+      return { action: 'deny' }
+    })
+
     // Wrapper FINO: se o site nao carrega (PC sem internet, DNS, host fora do ar), o Chromium
     // mostra a propria tela de erro crua -- sem marca, sem explicacao e sem como tentar de novo
     // a nao ser fechar o app. Trocamos por um aviso nosso, que ainda RETENTA sozinho ate voltar.

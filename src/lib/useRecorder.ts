@@ -594,9 +594,9 @@ export function useRecorder() {
       } catch (err) {
         const name = (err as DOMException)?.name
         if (name === 'NotAllowedError') {
-          setError('Permissao negada. Autorize o microfone e o compartilhamento de audio.')
+          setError('Permissão negada. Autorize o microfone e o compartilhamento de áudio.')
         } else {
-          setError('Nao foi possivel iniciar a captura de audio.')
+          setError('Não foi possível iniciar a captura de áudio.')
         }
         setState('idle')
       }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CalendarDays, RefreshCw, Clock, Link2Off, Mic, ChevronLeft, ChevronRight, Minus, Plus } from 'lucide-react'
+import { CalendarDays, RefreshCw, Clock, Link2Off, Mic, Minus, Plus } from 'lucide-react'
 import {
   startCalendarConnect,
   finishCalendarConnect,
@@ -15,9 +15,9 @@ import { Spinner, Skeleton, Sheet } from '../components/ui'
 import { ErrorNotice } from '../components/ErrorNotice'
 import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
+import { AgendaView } from '../components/AgendaView'
 
-const PAGE_SIZE = 10
-/** No modo pagina buscamos varias paginas de uma vez e paginamos no cliente. */
+/** No modo pagina buscamos os proximos 50 eventos de uma vez, agrupados por dia. */
 const PAGE_MODE_MAX = 50
 
 export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
@@ -30,7 +30,6 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
   const [loading, setLoading] = useState(false)
   const [eventsOpen, setEventsOpen] = useState(false)
   const [error, setError] = useState<CalError | null>(null)
-  const [page, setPage] = useState(0)
   const [minimized, setMinimized] = useState(false)
   const toast = useToast()
   const t = useT()
@@ -48,7 +47,6 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
       setNeedsAuth(r.needsAuth)
       setEvents(r.events)
       setError(r.error ?? null)
-      setPage(0)
     } finally {
       setLoading(false)
     }
@@ -118,102 +116,32 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
 
   /* ----------------------- Modo PAGINA (rota /agenda) ---------------------- */
   if (isPage) {
-    const pages = Math.max(1, Math.ceil(events.length / PAGE_SIZE))
-    const slice = events.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
-
     if (needsAuth) {
       return (
-        <div className="card p-4">
-          <div className="flex items-start gap-3 mb-4">
-            <span className="grid place-items-center h-10 w-10 rounded-xl bg-accent/10 text-accent shrink-0">
-              <CalendarDays size={20} />
-            </span>
-            <div className="min-w-0">
-              <p className="font-display font-semibold">{t('events.title')}</p>
-              <p className="text-sm text-content-muted">{t('events.connectSub')}</p>
-            </div>
-          </div>
-          <button className="btn-neutral w-full md:w-auto text-sm px-3.5 py-2" onClick={connect} disabled={loading}>
-            {loading ? <Spinner /> : <CalendarDays size={18} className="text-accent" />}
+        <div className="card p-6 sm:p-8 text-center max-w-lg mx-auto">
+          <span className="grid place-items-center h-14 w-14 rounded-2xl bg-accent/10 text-accent mx-auto mb-4">
+            <CalendarDays size={26} />
+          </span>
+          <p className="font-display font-semibold text-lg">{t('events.connect')}</p>
+          <p className="text-sm text-content-muted mt-1 mb-5">{t('events.connectSub')}</p>
+          <button className="btn-primary w-full sm:w-auto px-5" onClick={connect} disabled={loading}>
+            {loading ? <Spinner /> : <CalendarDays size={18} />}
             {t('events.connect')}
           </button>
-          {errorBlock && <div className="mt-3">{errorBlock}</div>}
+          {errorBlock && <div className="mt-4 text-left">{errorBlock}</div>}
         </div>
       )
     }
 
     return (
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <button
-            onClick={refresh}
-            className="flex items-center gap-1.5 text-sm text-content-secondary hover:text-content-primary"
-          >
-            {loading ? <Spinner size={14} /> : <RefreshCw size={14} />} {t('events.update')}
-          </button>
-          <button onClick={disconnect} className="flex items-center gap-1 text-xs text-content-muted hover:text-accent">
-            <Link2Off size={12} /> {t('events.disconnect')}
-          </button>
-        </div>
-
-        {errorBlock && <div className="mb-3">{errorBlock}</div>}
-
-        {loading && events.length === 0 ? (
-          <div className="grid place-items-center py-12">
-            <Spinner className="text-accent" />
-          </div>
-        ) : events.length === 0 ? (
-          <p className="text-sm text-content-muted text-center py-10">{t('events.none')}</p>
-        ) : (
-          <>
-            <ul className="grid sm:grid-cols-2 gap-3 min-w-0">
-              {slice.map((e) => (
-                <li key={e.id} className="card p-4 min-w-0">
-                  <div className="flex gap-3">
-                    <div className="grid place-items-center h-10 w-10 rounded-xl bg-brand-solid text-white shrink-0">
-                      <CalendarDays size={18} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium truncate">{e.title}</p>
-                      <p className="text-xs text-content-muted mt-0.5 flex items-center gap-1">
-                        <Clock size={12} />
-                        {eventLine(e)}
-                      </p>
-                    </div>
-                  </div>
-                  <button onClick={() => recordFromEvent(e)} className="btn-outline w-full h-9 mt-3 text-sm">
-                    <Mic size={16} /> {t('events.record')}
-                  </button>
-                </li>
-              ))}
-            </ul>
-
-            {pages > 1 && (
-              <div className="flex items-center justify-center gap-3 mt-5">
-                <button
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="grid place-items-center h-9 w-9 rounded-xl bg-surface-elevated border border-surface-border disabled:opacity-40"
-                  aria-label="Anterior"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-                <span className="text-sm text-content-muted tabular-nums">
-                  {page + 1} / {pages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(pages - 1, p + 1))}
-                  disabled={page >= pages - 1}
-                  className="grid place-items-center h-9 w-9 rounded-xl bg-surface-elevated border border-surface-border disabled:opacity-40"
-                  aria-label="Próxima"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
+      <AgendaView
+        events={events}
+        loading={loading}
+        error={errorBlock}
+        onRefresh={refresh}
+        onDisconnect={disconnect}
+        onRecord={recordFromEvent}
+      />
     )
   }
 

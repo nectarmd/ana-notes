@@ -23,6 +23,16 @@ const DEFAULTS: AppSettings = {
   ai_monthly_usd_global: 300,
   ai_rate_per_min: 20,
   ai_daily_alert_usd: 10,
+  // Devem espelhar os defaults da migration 0038.
+  ai_notes_per_hour_per_user: 20,
+  ai_audio_minutes_per_day_per_user: 480,
+  provider_billing: { anthropic: 'paid', openai: 'paid', groq: 'free', assemblyai: 'free' },
+  provider_limits: {
+    groq: { requests_min: 20, requests_day: 2000, audio_seconds_hour: 7200, audio_seconds_day: 28800 },
+    assemblyai: { credit_usd: 50 },
+    anthropic: { balance_usd: null, balance_set_at: null },
+  },
+  ai_breaker: {},
 }
 
 const KEY = 'tailor.appsettings'

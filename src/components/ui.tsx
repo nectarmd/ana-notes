@@ -193,7 +193,8 @@ export function ConfirmDialog({
 }: {
   open: boolean
   title: string
-  message?: string
+  /** Texto ou conteudo rico (ex.: um campo extra de confirmacao). */
+  message?: React.ReactNode
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
@@ -214,7 +215,7 @@ export function ConfirmDialog({
       <div className="absolute inset-0 bg-black/50 animate-fade-in" onClick={onClose} />
       <div className="relative w-full sm:max-w-sm bg-surface-card border border-surface-border rounded-t-3xl sm:rounded-3xl shadow-float animate-slide-up safe-bottom p-6">
         <h2 className="font-display font-semibold text-lg">{title}</h2>
-        {message && <p className="text-content-secondary mt-1.5 text-sm leading-relaxed">{message}</p>}
+        {message && <div className="text-content-secondary mt-1.5 text-sm leading-relaxed">{message}</div>}
         <div className="flex gap-3 mt-6">
           <button className="btn-outline flex-1" onClick={onClose}>
             {cancelLabel}

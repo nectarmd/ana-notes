@@ -53,7 +53,8 @@ import { FolderSheet } from './FolderSheet'
 import { Sheet } from '../components/ui'
 import type { Folder } from '../lib/types'
 import { logSilentError } from '../lib/auditLog'
-import { stripInlineMd } from '../lib/textPreview'
+import { SummaryView, TranscriptView } from '../components/NoteContent'
+import { TaskFlag } from '../components/TaskPriority'
 import { directoryByIds } from '../lib/directory'
 
 type Tab = 'summary' | 'detailed' | 'analysis' | 'transcript'
@@ -481,7 +482,7 @@ export function NoteDetail() {
                 className={`h-6 w-11 rounded-full relative shrink-0 transition-colors ${note.keep_audio ? 'bg-brand-solid' : 'bg-surface-border'}`}
               >
                 <span
-                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${note.keep_audio ? 'translate-x-5' : 'translate-x-0.5'}`}
+                  className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${note.keep_audio ? 'translate-x-5' : 'translate-x-0.5'}`}
                 />
               </span>
               <span className="min-w-0">
@@ -581,7 +582,7 @@ export function NoteDetail() {
                   t={t}
                 />
               ) : (
-                <ProseBlock text={note.summary} empty={t('note.summaryNA')} />
+                <SummaryView text={note.summary} empty={t('note.summaryNA')} />
               )}
               {note.action_items.length > 0 && (
                 <div className="mt-6">
@@ -602,9 +603,12 @@ export function NoteDetail() {
                           >
                             {a.done && <ListChecks size={12} />}
                           </span>
-                          <span className={a.done ? 'line-through text-content-muted' : ''}>
+                          <span className={`flex-1 min-w-0 ${a.done ? 'line-through text-content-muted' : ''}`}>
                             {a.text}
                             {a.owner && <span className="text-content-muted"> — {a.owner}</span>}
+                          </span>
+                          <span className="shrink-0 mt-0.5">
+                            <TaskFlag priority={a.priority ?? 'normal'} size={13} />
                           </span>
                         </button>
                       </li>
@@ -617,7 +621,7 @@ export function NoteDetail() {
 
           {tab === 'detailed' &&
             (note.detailed_summary ? (
-              <ProseBlock text={note.detailed_summary} />
+              <SummaryView text={note.detailed_summary} empty={t('note.summaryNA')} />
             ) : !canEdit ? (
               // Sem o dono nao ha o que gerar: a RLS barra o salvamento (e a chamada de IA
               // seria cobrada a toa) -- origem dos 5 erros da Larissa em /admin/audit.
@@ -647,7 +651,14 @@ export function NoteDetail() {
               />
             ))}
 
-          {tab === 'transcript' && <ProseBlock text={note.transcript} empty={t('note.transcriptNA')} mono />}
+          {tab === 'transcript' && (
+            <TranscriptView
+              text={note.transcript}
+              empty={t('note.transcriptNA')}
+              searchPlaceholder={t('note.transcriptSearch')}
+              matchesLabel={t('note.transcriptMatches')}
+            />
+          )}
         </div>
       </div>
 
@@ -766,7 +777,7 @@ export function NoteDetail() {
         />
       )}
 
-      <Sheet open={editField !== null} onClose={() => setEditField(null)} title={editField === 'title' ? 'Editar titulo' : 'Editar resumo'}>
+      <Sheet open={editField !== null} onClose={() => setEditField(null)} title={editField === 'title' ? 'Editar título' : 'Editar resumo'}>
         {editField === 'title' ? (
           <input className="input mb-4" value={editValue} onChange={(e) => setEditValue(e.target.value)} />
         ) : (
@@ -835,31 +846,6 @@ function GenerateCta({
 }
 
 /** Renders simple markdown-ish content (headings, bullets). */
-function ProseBlock({ text, empty, mono }: { text: string; empty?: string; mono?: boolean }) {
-  if (!text?.trim()) return <p className="text-content-muted">{empty ?? 'Sem conteudo.'}</p>
-  const lines = text.split('\n')
-  return (
-    <div className={`space-y-2 leading-relaxed break-words ${mono ? 'text-content-secondary' : ''}`}>
-      {lines.map((line, i) => {
-        const t = line.trim()
-        if (!t) return <div key={i} className="h-2" />
-        if (t.startsWith('## '))
-          return <h3 key={i} className="font-display font-semibold text-lg text-accent mt-4">{stripInlineMd(t.slice(3))}</h3>
-        if (t.startsWith('# '))
-          return <h2 key={i} className="font-display font-bold text-xl mt-4">{stripInlineMd(t.slice(2))}</h2>
-        if (t.startsWith('- '))
-          return (
-            <div key={i} className="flex gap-2">
-              <span className="text-accent mt-1.5 h-1.5 w-1.5 rounded-full bg-brand-solid shrink-0" />
-              <span>{stripInlineMd(t.slice(2))}</span>
-            </div>
-          )
-        return <p key={i}>{stripInlineMd(t)}</p>
-      })}
-    </div>
-  )
-}
-
 function AnalysisView({ analysis, t }: { analysis: NonNullable<Note['analysis']>; t: (k: string) => string }) {
   return (
     <div className="space-y-5">

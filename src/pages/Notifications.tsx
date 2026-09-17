@@ -7,7 +7,7 @@ import { useT } from '../lib/i18n'
 function Toggle({ on }: { on: boolean }) {
   return (
     <span className={`h-6 w-11 rounded-full relative shrink-0 transition-colors ${on ? 'bg-brand-solid' : 'bg-surface-border'}`}>
-      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
+      <span className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : 'translate-x-0.5'}`} />
     </span>
   )
 }

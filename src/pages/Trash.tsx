@@ -36,9 +36,9 @@ export function TrashPage() {
     try {
       await deleteAudio(note.audio_url)
       await db.deleteNotePermanent(note.id)
-      toast('Nota excluida definitivamente', 'info')
+      toast('Nota excluída definitivamente', 'info')
     } catch {
-      toast('Nao consegui excluir a nota', 'error')
+      toast('Não consegui excluir a nota', 'error')
     } finally {
       load()
       setBusy(null)
@@ -60,7 +60,7 @@ export function TrashPage() {
     }
     load()
     setBusy(null)
-    if (failed) toast(`${failed} nota(s) nao puderam ser excluidas`, 'error')
+    if (failed) toast(`${failed} nota(s) não puderam ser excluídas`, 'error')
     else toast('Lixeira esvaziada', 'info')
   }
 
@@ -102,7 +102,7 @@ export function TrashPage() {
         <EmptyState
           icon={<Trash size={40} />}
           title="Lixeira vazia"
-          subtitle="Notas que voce excluir aparecem aqui e podem ser restauradas antes da remocao definitiva."
+          subtitle="Notas que você excluir aparecem aqui e podem ser restauradas antes da remoção definitiva."
           action={
             <button className="btn-outline" onClick={() => navigate('/')}>
               Voltar para as notas
@@ -140,7 +140,7 @@ export function TrashPage() {
       <ConfirmDialog
         open={purgeTarget !== null}
         title="Excluir definitivamente?"
-        message="Esta acao nao pode ser desfeita. A nota sera removida permanentemente."
+        message="Esta ação não pode ser desfeita. A nota será removida permanentemente."
         confirmLabel="Excluir"
         danger
         onConfirm={() => {
@@ -152,7 +152,7 @@ export function TrashPage() {
       <ConfirmDialog
         open={purgeAll}
         title="Esvaziar a lixeira?"
-        message={`As ${notes?.length ?? 0} nota(s) da lixeira serao removidas permanentemente, junto com o audio. Esta acao nao pode ser desfeita.`}
+        message={`As ${notes?.length ?? 0} nota(s) da lixeira serão removidas permanentemente, junto com o áudio. Esta ação não pode ser desfeita.`}
         confirmLabel="Excluir tudo"
         danger
         onConfirm={purgeEverything}

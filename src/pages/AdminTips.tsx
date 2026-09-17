@@ -122,12 +122,12 @@ function AnnouncementCard() {
       <label className="label">Mensagem</label>
       <textarea
         className="input min-h-[80px] resize-none mb-3"
-        placeholder="Ex: Nova funcionalidade de reunioes disponivel!"
+        placeholder="Ex: Nova funcionalidade de reuniões disponível!"
         value={s.announcement_message}
         onChange={(e) => set({ announcement_message: e.target.value })}
       />
 
-      <label className="label">Periodo (opcional)</label>
+      <label className="label">Período (opcional)</label>
       <div className="space-y-3 mb-1">
         <div className="min-w-0">
           <span className="block text-[11px] text-content-muted mb-1">Inicio</span>
@@ -148,7 +148,7 @@ function AnnouncementCard() {
           />
         </div>
       </div>
-      <p className="text-xs text-content-muted mb-4">Sem datas = fixo ate voce remover.</p>
+      <p className="text-xs text-content-muted mb-4">Sem datas = fixo até você remover.</p>
 
       {s.announcement_enabled ? (
         <button className="btn-outline w-full text-accent" onClick={() => save(false)} disabled={saving}>
@@ -195,7 +195,7 @@ function RotationCard() {
   return (
     <div className="card p-5 mb-6">
       {/* A LINHA INTEIRA e clicavel (nao so a bolinha) -- um alvo de toque pequeno demais e a
-          causa mais provavel de "o toggle nao funciona" no celular/PWA. */}
+          causa mais provavel de "o toggle não funciona" no celular/PWA. */}
       <button
         onClick={toggle}
         disabled={saving}
@@ -210,7 +210,7 @@ function RotationCard() {
           }`}
         >
           <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+            className={`absolute left-0 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
               settings.tips_rotate_enabled ? 'translate-x-5' : 'translate-x-0.5'
             }`}
           />

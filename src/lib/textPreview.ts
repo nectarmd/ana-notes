@@ -1,5 +1,5 @@
 // Texto gerado pela IA pode trazer marcacao (##, -, **) que faz sentido no leitor completo
-// (ProseBlock, em NoteDetail.tsx) mas nao em previas curtas (cards, listas): ali a marcacao so
+// (SummaryView, em components/NoteContent.tsx) mas nao em previas curtas (cards, listas): ali a marcacao so
 // aparece como caractere literal na tela. Aqui centralizamos a limpeza pros dois usos.
 
 /** Remove enfase inline (negrito/italico/codigo) escapada pela IA mesmo quando instruida a nao usar. */
@@ -17,7 +17,9 @@ export function toPreviewText(text: string | null | undefined): string {
   if (!text?.trim()) return ''
   return text
     .split('\n')
-    .map((line) => stripInlineMd(line.trim().replace(/^#{1,2}\s+/, '').replace(/^-\s+/, '')))
+    // Titulos de secao ("## Visão geral") nao entram na previa: so poluiam o card.
+    .filter((line) => !/^\s*#/.test(line))
+    .map((line) => stripInlineMd(line.trim().replace(/^[-*•]\s+/, '')))
     .filter(Boolean)
     .join(' · ')
 }

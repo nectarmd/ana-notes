@@ -49,10 +49,10 @@ Deno.serve(async (req) => {
     const message = String(body.message ?? 'erro sem mensagem').slice(0, 500)
 
     // Codigo do erro vindo do cliente (ex.: NETWORK, CLIENT_UNEXPECTED). So letras/digitos/_ e
-    // prefixo forcado "CLIENT_" quando nao for um codigo conhecido do app -- um cliente hostil nao
+    // prefixo forcado "CLIENT_" quando nao for um codigo do app (CLIENT_*, RECORDER_*, NETWORK) -- um cliente hostil nao
     // consegue fazer um erro comum parecer um codigo de servidor.
     const rawCode = typeof body.code === 'string' ? body.code.toUpperCase().replace(/[^A-Z0-9_]/g, '').slice(0, 60) : ''
-    const code = rawCode ? (rawCode.startsWith('CLIENT_') || rawCode === 'NETWORK' ? rawCode : `CLIENT_${rawCode}`) : null
+    const code = rawCode ? (rawCode.startsWith('CLIENT_') || rawCode.startsWith('RECORDER_') || rawCode === 'NETWORK' ? rawCode : `CLIENT_${rawCode}`) : null
 
     await logAuditServer({
       severity,
