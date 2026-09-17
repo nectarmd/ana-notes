@@ -352,6 +352,14 @@ export const mockDb: Db = {
     return (await this.listNotes(userId)).slice(0, limit)
   },
 
+  async listFavoriteNotes(userId, limit = 6) {
+    return (await this.listNotes(userId)).filter((n) => n.favorite).slice(0, limit)
+  },
+
+  async setNoteFavorite(id, favorite) {
+    await this.updateNote(id, { favorite })
+  },
+
   async getNote(id) {
     cleanupExpiredAudio()
     const notes = read<Note[]>(K.notes, [])
@@ -372,6 +380,7 @@ export const mockDb: Db = {
       context: input.context ?? '',
       folder: input.folder ?? null,
       folder_id: input.folder_id ?? null,
+      favorite: input.favorite ?? false,
       duration_seconds: input.duration_seconds ?? 0,
       audio_url: input.audio_url ?? null,
       language: input.language ?? 'pt-BR',

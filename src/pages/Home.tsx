@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Lightbulb,
   ChevronRight,
+  Heart,
   X,
 } from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
@@ -28,6 +29,7 @@ import { useAuth } from '../auth/AuthProvider'
 import { db } from '../lib/api'
 import type { Note, Folder, Tip } from '../lib/types'
 import { tipsEnabled, listActiveTips } from '../lib/tips'
+import { emitFavoritesChanged } from '../lib/favorites'
 import { useAppSettings } from '../app/SettingsProvider'
 import { fmtDate, fmtDuration, fmtTime } from '../lib/format'
 import { Avatar, EmptyState, Chip, NoteCardSkeleton, PriorityBadge, ConfirmDialog } from '../components/ui'
@@ -194,6 +196,23 @@ export function Home() {
     }
   }
 
+  /** Coracao do cartao: marca na tela primeiro e grava depois -- esperar o banco deixava o
+   *  clique com cara de travado. Se a gravacao falhar, o coracao volta ao que era. */
+  async function toggleFavorite(note: Note) {
+    const next = !note.favorite
+    const paint = (v: boolean) =>
+      setNotes((prev) => (prev ? prev.map((x) => (x.id === note.id ? { ...x, favorite: v } : x)) : prev))
+    paint(next)
+    try {
+      await db.setNoteFavorite(note.id, next)
+      emitFavoritesChanged()
+    } catch (err) {
+      logSilentError('client:Home.toggleFavorite', err)
+      paint(!next)
+      toast(t('common.error'), 'error')
+    }
+  }
+
   /** So pra nota compartilhada comigo: sai da lista de quem ve, sem tocar na nota do dono. */
   async function confirmLeave() {
     const target = pendingLeave
@@ -292,7 +311,9 @@ export function Home() {
     if (!notes) return []
     const q = query.trim().toLowerCase()
     const arr = notes.filter((n) => {
-      if (folderFilter !== 'all' && n.folder_id !== folderFilter) return false
+      if (folderFilter === 'fav') {
+        if (!n.favorite) return false
+      } else if (folderFilter !== 'all' && n.folder_id !== folderFilter) return false
       if (!q) return true
       return (
         n.title.toLowerCase().includes(q) ||
@@ -462,10 +483,17 @@ export function Home() {
           )}
         </div>
 
-        {folderList.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 min-w-0 flex-1">
+        {/* Todas | Favoritos | pastas, nesta ordem. A faixa aparece mesmo sem pasta nenhuma:
+            os favoritos valem por si. */}
+        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 min-w-0 flex-1">
             <Chip active={folderFilter === 'all'} onClick={() => setFolderFilter('all')}>
               {t('home.all')}
+            </Chip>
+            <Chip active={folderFilter === 'fav'} onClick={() => setFolderFilter('fav')}>
+              <span className="inline-flex items-center gap-1.5">
+                <Heart size={13} fill={folderFilter === 'fav' ? 'currentColor' : 'none'} />
+                {t('home.favorites')}
+              </span>
             </Chip>
             {folderList.map((f) => (
               <Chip key={f.id} active={folderFilter === f.id} onClick={() => setFolderFilter(f.id)}>
@@ -475,8 +503,7 @@ export function Home() {
                 </span>
               </Chip>
             ))}
-          </div>
-        )}
+        </div>
 
         {notes && filtered.length > 0 && (
           <span className="text-xs text-content-muted whitespace-nowrap ml-auto">
@@ -535,7 +562,11 @@ export function Home() {
             const mine = n.user_id === profile?.id
             const preview = toPreviewText(n.summary || '').slice(0, 160)
             // Faixa colorida a esquerda (so no mobile): cor da pasta, ou o vermelho da marca.
+            const favLabel = n.favorite ? t('home.unfavorite') : t('home.favorite')
             const card = (
+              // O coracao precisa ser um botao IRMAO do cartao (botao dentro de botao nao existe
+              // em HTML); fica aqui dentro, e nao no <li>, para acompanhar o arrasto do SwipeRow.
+              <div className="relative h-full">
               <button
                 onClick={() => navigate(`/nota/${n.id}`)}
                 style={fc ? ({ '--stripe': fc } as React.CSSProperties) : undefined}
@@ -572,7 +603,7 @@ export function Home() {
                   </p>
                 )}
                 {/* Rodape colado embaixo: horario (+ duracao/pasta) */}
-                <p className="text-sm text-content-muted mt-auto pt-2">
+                <p className="text-sm text-content-muted mt-auto pt-2 pr-10">
                   {fmtTime(n.created_at)}
                   {n.duration_seconds ? ` • ${fmtDuration(n.duration_seconds)}` : ''}
                   {folderName(n.folder_id) ? ` • ${folderName(n.folder_id)}` : ''}
@@ -580,7 +611,7 @@ export function Home() {
 
                 {/* Aviso de auto-delete: so nos ultimos dias, e so se nao estiver marcada para manter. */}
                 {expiring && (
-                  <p className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-accent">
+                  <p className="mt-2 pr-10 flex items-center gap-1.5 text-[11px] font-medium text-accent">
                     <Clock size={12} className="shrink-0" />
                     {daysLeft === 0
                       ? t('home.expiresToday')
@@ -591,6 +622,20 @@ export function Home() {
                   </p>
                 )}
               </button>
+
+              <button
+                onClick={() => toggleFavorite(n)}
+                title={favLabel}
+                aria-label={favLabel}
+                aria-pressed={n.favorite}
+                className={`absolute right-2 bottom-2 grid place-items-center h-8 w-8 rounded-full
+                            transition-colors hover:bg-surface-elevated ${
+                              n.favorite ? 'text-brand-solid' : 'text-content-muted hover:text-brand-solid'
+                            }`}
+              >
+                <Heart size={17} fill={n.favorite ? 'currentColor' : 'none'} />
+              </button>
+              </div>
             )
             return (
               <li key={n.id}>

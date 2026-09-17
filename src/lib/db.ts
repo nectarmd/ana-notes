@@ -64,6 +64,10 @@ export interface Db {
   listNotes(userId: string): Promise<Note[]>
   /** So o necessario para a lista de recentes (sem transcricao/resumo): roda em toda tela. */
   listRecentNotes(userId: string, limit?: number): Promise<RecentNote[]>
+  /** As favoritas (coracao) para o menu lateral -- mesma linha leve das recentes. */
+  listFavoriteNotes(userId: string, limit?: number): Promise<RecentNote[]>
+  /** Marca/desmarca o coracao. Nao mexe em updated_at: favoritar nao e editar a nota. */
+  setNoteFavorite(id: string, favorite: boolean): Promise<void>
   getNote(id: string): Promise<Note | null>
   createNote(input: Partial<Note> & { user_id: string; title: string }): Promise<Note>
   updateNote(id: string, patch: Partial<Note>): Promise<Note>

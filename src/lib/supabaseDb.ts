@@ -367,6 +367,27 @@ export const supabaseDb: Db = {
     return (data ?? []) as RecentNote[]
   },
 
+  async listFavoriteNotes(userId, limit = 6) {
+    const { data, error } = await client()
+      .from('notes')
+      .select('id, title, type, duration_seconds, status, created_at')
+      .is('deleted_at', null)
+      .eq('user_id', userId)
+      .eq('favorite', true)
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (error) throw error
+    return (data ?? []) as RecentNote[]
+  },
+
+  async setNoteFavorite(id, favorite) {
+    // `select()` pelo mesmo motivo do deleteNote: sem ele, marcar a nota de outra pessoa
+    // afetaria 0 linhas e a tela mostraria um coracao vermelho que o banco nao tem.
+    const { data, error } = await client().from('notes').update({ favorite }).eq('id', id).select('id')
+    if (error) throw error
+    if (!data?.length) throw new Error('Você não tem permissão para alterar esta nota.')
+  },
+
   async getNote(id) {
     const { data, error } = await client().from('notes').select('*').eq('id', id).single()
     if (error) return null

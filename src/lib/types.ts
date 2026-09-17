@@ -243,6 +243,8 @@ export interface Note {
   priority: NotePriority | null
   /** Nomes dos falantes por rotulo da diarizacao (0043). A transcricao guarda os rotulos intactos. */
   speakers?: NoteSpeakers | null
+  /** Coracao do cartao (0044). E pessoal: a copia compartilhada nasce sem ele. */
+  favorite: boolean
   keep_audio: boolean
   audio_deleted_at: string | null
   deleted_at: string | null

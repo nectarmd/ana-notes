@@ -101,11 +101,13 @@ export function SwipeRow({
           />
         )}
 
+        {/* O canto de baixo a direita e do coracao (favoritar): a lixeira, que so aparece ao passar
+            o mouse, fica ao lado dele. */}
         <button
           onClick={onDelete}
           aria-label={label}
           title={label}
-          className="hidden md:grid absolute bottom-2 right-2 place-items-center h-8 w-8 rounded-lg
+          className="hidden md:grid absolute bottom-2 right-11 place-items-center h-8 w-8 rounded-lg
                      text-content-muted opacity-0 group-hover:opacity-100 focus-visible:opacity-100
                      hover:bg-surface-elevated hover:text-accent transition-opacity"
         >

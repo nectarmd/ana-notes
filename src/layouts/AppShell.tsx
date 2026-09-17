@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   Home,
@@ -17,6 +17,7 @@ import {
   Video,
   Link2,
   FileText,
+  Heart,
 } from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
 import { useAuth } from '../auth/AuthProvider'
@@ -35,6 +36,7 @@ import { HelpAssistant } from '../pages/HelpAssistant'
 import { useT } from '../lib/i18n'
 import { db } from '../lib/api'
 import { fmtRelative } from '../lib/format'
+import { FAVORITES_CHANGED_EVENT } from '../lib/favorites'
 import type { RecentNote } from '../lib/types'
 
 const HIDE_MOBILE_NAV_ON = ['/nota/', '/capturar']
@@ -95,11 +97,13 @@ function SidebarLink({ item, label, tag }: { item: Item; label: string; tag?: st
 }
 
 /**
- * Notas recentes no rodape do menu (17/09/2026): a metade de baixo da barra vivia vazia e voltar
- * a uma nota exigia ir para a tela inicial e procurar. Consulta leve (5 linhas, sem transcricao),
- * refeita ao trocar de tela -- no maximo uma vez a cada 30 s.
+ * Favoritas no rodape do menu (17/09/2026): a metade de baixo da barra vivia vazia e voltar a uma
+ * nota exigia ir para a tela inicial e procurar. Comecou listando as mais recentes; virou favoritas
+ * porque quem volta sempre nas mesmas notas nao as encontra pela ordem de criacao. Consulta leve
+ * (sem transcricao), refeita ao trocar de tela -- no maximo uma a cada 30 s -- e assim que alguem
+ * mexe num coracao.
  */
-function SidebarRecent() {
+function SidebarFavorites() {
   const { profile } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -107,28 +111,44 @@ function SidebarRecent() {
   const [notes, setNotes] = useState<RecentNote[] | null>(null)
   const lastFetch = useRef(0)
 
+  const load = useCallback(() => {
+    if (!profile) return
+    lastFetch.current = Date.now()
+    db.listFavoriteNotes(profile.id, 6)
+      .then(setNotes)
+      .catch(() => setNotes((prev) => prev ?? []))
+  }, [profile])
+
   useEffect(() => {
     if (!profile) return
     // Nao refaz a consulta a cada navegacao: no maximo uma a cada 30 s. A checagem da lista atual
     // e necessaria porque, sem ela, a dupla execucao do modo de desenvolvimento gastava a unica
     // busca permitida e a lista nascia vazia.
     if (notes && Date.now() - lastFetch.current < 30_000) return
-    lastFetch.current = Date.now()
-    db.listRecentNotes(profile.id, 5)
-      .then(setNotes)
-      .catch(() => setNotes((prev) => prev ?? []))
+    load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, location.pathname])
 
-  if (!notes?.length) return null
+  // Coracao clicado na tela inicial: a lista daqui muda na hora, sem esperar os 30 s.
+  useEffect(() => {
+    const onChanged = () => load()
+    window.addEventListener(FAVORITES_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(FAVORITES_CHANGED_EVENT, onChanged)
+  }, [load])
+
+  if (!profile || !notes) return null
 
   return (
     <div className="px-3 pb-2">
-      <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
-        {t('sidebar.recent')}
+      <p className="px-3 mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+        <Heart size={12} className="shrink-0" />
+        {t('sidebar.favorites')}
       </p>
+      {notes.length === 0 ? (
+        <p className="px-3 text-[11px] leading-snug text-content-muted">{t('sidebar.favoritesEmpty')}</p>
+      ) : (
       <ul className="space-y-0.5">
-        {notes.slice(0, 5).map((n) => (
+        {notes.map((n) => (
           <li key={n.id}>
             <button
               onClick={() => navigate(`/nota/${n.id}`)}
@@ -156,6 +176,7 @@ function SidebarRecent() {
           </li>
         ))}
       </ul>
+      )}
     </div>
   )
 }
@@ -214,7 +235,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         </div>
       </nav>
 
-      <SidebarRecent />
+      <SidebarFavorites />
 
       {/* "Powered by" a esquerda, logo Tailor colada na direita, alinhadas pela base. */}
       <div className="px-4 pb-3 flex items-end justify-between gap-2">
