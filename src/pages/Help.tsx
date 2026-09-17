@@ -61,7 +61,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
         items: [
           {
             q: 'Como crio uma nota?',
-            a: 'Toque no microfone no centro da barra inferior (no computador, em "Gravação Inteligente" no menu lateral) e escolha: gravar, enviar áudio, enviar vídeo, PDF/arquivo/texto ou link da web. A transcrição, o resumo e os itens de ação são gerados automaticamente.',
+            a: 'Toque no microfone no centro da barra inferior (no computador, em "Nova nota" no menu lateral) e escolha: gravar, enviar áudio, enviar vídeo, PDF/arquivo/texto ou link da web. A transcrição, o resumo e os itens de ação são gerados automaticamente.',
           },
           {
             q: 'Como gravo uma reunião do computador?',
@@ -180,7 +180,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
         items: [
           {
             q: 'How do I create a note?',
-            a: 'Tap the microphone in the center of the bottom bar (on a computer, "Smart Recording" in the side menu) and choose: record, upload audio, upload video, PDF/file/text or web link. The transcript, summary and action items are generated automatically.',
+            a: 'Tap the microphone in the center of the bottom bar (on a computer, "New note" in the side menu) and choose: record, upload audio, upload video, PDF/file/text or web link. The transcript, summary and action items are generated automatically.',
           },
           {
             q: 'How do I record a meeting on my computer?',

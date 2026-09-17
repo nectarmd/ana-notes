@@ -12,7 +12,7 @@ export interface HelpEntry {
 export const HELP_KB: HelpEntry[] = [
   {
     q: 'Como crio uma nota?',
-    a: 'Toque no microfone (no celular, no centro da barra de baixo; no computador, em "Gravação Inteligente") e escolha: gravar pelo microfone, gravar reunião no PC, enviar áudio, enviar vídeo, PDF/arquivo/texto, imagem ou link. A transcrição e o resumo são gerados automaticamente.',
+    a: 'Toque no microfone (no celular, no centro da barra de baixo; no computador, em "Nova nota") e escolha: gravar pelo microfone, gravar reunião no PC, enviar áudio, enviar vídeo, PDF/arquivo/texto, imagem ou link. A transcrição e o resumo são gerados automaticamente.',
     keywords: ['criar', 'nota', 'nova', 'comecar', 'gravar', 'como', 'faco'],
   },
   {
