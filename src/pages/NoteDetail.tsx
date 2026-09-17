@@ -23,6 +23,13 @@ import {
   Copy,
   FolderPlus,
   X,
+  AudioLines,
+  ThumbsUp,
+  TrendingUp,
+  HelpCircle,
+  Lightbulb,
+  Target,
+  AlertTriangle,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { db, config } from '../lib/api'
@@ -881,46 +888,134 @@ function GenerateCta({
 }
 
 /** Renders simple markdown-ish content (headings, bullets). */
+type AnalysisTabKey = 'tone' | 'strengths' | 'improvements' | 'questionsAsked' | 'suggestedQuestions' | 'keyPoints' | 'risks'
+
+/**
+ * Analise da reuniao em ABAS (pedido de 17/09/2026): antes as 7 secoes vinham corridas uma embaixo
+ * da outra e a pagina ficava longa demais. A nota geral e o ritmo ficam fixos no topo; cada aba
+ * mostra quantos itens tem, e aba sem conteudo nao aparece (a IA as vezes devolve campos vazios).
+ */
 function AnalysisView({ analysis, t }: { analysis: NonNullable<Note['analysis']>; t: (k: string) => string }) {
+  const clean = (items: string[] | string | undefined) =>
+    (Array.isArray(items) ? items : [items ?? '']).map((it) => (it ?? '').trim()).filter(Boolean)
+
+  const tabs: { key: AnalysisTabKey; label: string; icon: React.ReactNode; items: string[]; accent?: boolean }[] = [
+    { key: 'tone', label: t('note.tone'), icon: <AudioLines size={15} />, items: clean(analysis.tone) },
+    { key: 'strengths', label: t('note.strengths'), icon: <ThumbsUp size={15} />, items: clean(analysis.strengths), accent: true },
+    { key: 'improvements', label: t('note.improvements'), icon: <TrendingUp size={15} />, items: clean(analysis.improvements) },
+    { key: 'questionsAsked', label: t('note.questionsAsked'), icon: <HelpCircle size={15} />, items: clean(analysis.questionsAsked) },
+    {
+      key: 'suggestedQuestions',
+      label: t('note.suggestedQuestions'),
+      icon: <Lightbulb size={15} />,
+      items: clean(analysis.suggestedQuestions),
+      accent: true,
+    },
+    { key: 'keyPoints', label: t('note.keyPoints'), icon: <Target size={15} />, items: clean(analysis.keyPoints) },
+    { key: 'risks', label: t('note.risks'), icon: <AlertTriangle size={15} />, items: clean(analysis.risks) },
+  ]
+  const visible = tabs.filter((tab) => tab.items.length > 0)
+  const [active, setActive] = useState<AnalysisTabKey>(visible[0]?.key ?? 'tone')
+  const current = visible.find((tab) => tab.key === active) ?? visible[0]
+
+  // Setas do teclado trocam de aba (padrao de tablist acessivel).
+  function onKey(e: React.KeyboardEvent) {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
+    e.preventDefault()
+    const idx = visible.findIndex((tab) => tab.key === current?.key)
+    const next = visible[(idx + (e.key === 'ArrowRight' ? 1 : visible.length - 1)) % visible.length]
+    if (next) {
+      setActive(next.key)
+      document.getElementById(`analysis-tab-${next.key}`)?.focus()
+    }
+  }
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {typeof analysis.overallScore === 'number' && (
         <div className="card p-5 flex items-center gap-4">
-          <div className="grid place-items-center h-16 w-16 rounded-full bg-brand-solid text-white font-display font-bold text-xl">
+          <div className="grid place-items-center h-16 w-16 rounded-full bg-brand-solid text-white font-display font-bold text-xl shrink-0">
             {analysis.overallScore}
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="font-semibold">{t('note.quality')}</p>
-            <p className="text-sm text-content-muted">{analysis.pacing}</p>
+            {analysis.pacing?.trim() && <p className="text-sm text-content-muted">{analysis.pacing}</p>}
           </div>
         </div>
       )}
-      <AnalysisSection title={t('note.tone')} items={[analysis.tone]} />
-      <AnalysisSection title={t('note.strengths')} items={analysis.strengths} accent />
-      <AnalysisSection title={t('note.improvements')} items={analysis.improvements} />
-      <AnalysisSection title={t('note.questionsAsked')} items={analysis.questionsAsked} />
-      <AnalysisSection title={t('note.suggestedQuestions')} items={analysis.suggestedQuestions} accent />
-      <AnalysisSection title={t('note.keyPoints')} items={analysis.keyPoints} />
-      <AnalysisSection title={t('note.risks')} items={analysis.risks} />
+
+      {visible.length > 0 && current && (
+        <div className="card overflow-hidden">
+          <div
+            role="tablist"
+            aria-label={t('note.analysisTitle')}
+            onKeyDown={onKey}
+            className="flex gap-1 overflow-x-auto sm:flex-wrap sm:overflow-visible border-b border-surface-border px-2 pt-2"
+          >
+            {visible.map((tab) => {
+              const selected = tab.key === current.key
+              return (
+                <button
+                  key={tab.key}
+                  id={`analysis-tab-${tab.key}`}
+                  role="tab"
+                  aria-selected={selected}
+                  aria-controls={`analysis-panel-${tab.key}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={(e) => {
+                    setActive(tab.key)
+                    // Celular: a fileira rola de lado; traz a aba tocada para a vista.
+                    e.currentTarget.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+                  }}
+                  className={`relative flex items-center gap-1.5 whitespace-nowrap rounded-t-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                    selected ? 'text-accent' : 'text-content-secondary hover:text-content-primary hover:bg-surface-elevated'
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                  {tab.key !== 'tone' && (
+                    <span
+                      className={`min-w-[18px] rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${
+                        selected ? 'bg-accent/15 text-accent' : 'bg-surface-elevated text-content-muted'
+                      }`}
+                    >
+                      {tab.items.length}
+                    </span>
+                  )}
+                  {selected && <span aria-hidden className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-accent" />}
+                </button>
+              )
+            })}
+          </div>
+
+          <div
+            id={`analysis-panel-${current.key}`}
+            role="tabpanel"
+            aria-labelledby={`analysis-tab-${current.key}`}
+            className="p-4 sm:p-5"
+          >
+            {current.key === 'tone' ? (
+              <p className="text-[15px] leading-7 text-content-secondary whitespace-pre-line">{current.items.join('\n')}</p>
+            ) : (
+              <ol className="space-y-2">
+                {current.items.map((it, i) => (
+                  <li
+                    key={i}
+                    className={`flex gap-3 rounded-xl border px-4 py-3 ${
+                      current.accent ? 'border-accent/25 bg-accent/5' : 'border-surface-border bg-surface-elevated/50'
+                    }`}
+                  >
+                    <span className="grid place-items-center h-6 w-6 rounded-full bg-surface-card border border-surface-border text-[11px] font-semibold text-content-muted shrink-0 mt-0.5 tabular-nums">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 flex-1 text-[15px] leading-relaxed break-words">{it}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
-
-function AnalysisSection({ title, items, accent }: { title: string; items: string[]; accent?: boolean }) {
-  // A IA as vezes devolve campos em branco; um card vazio na tela e pior do que nao mostrar a secao.
-  const list = (items ?? []).filter((it) => !!it?.trim())
-  if (!list.length) return null
-  return (
-    <div>
-      <h3 className="font-display font-semibold mb-2">{title}</h3>
-      <ul className="space-y-2">
-        {list.map((it, i) => (
-          <li key={i} className={`card px-4 py-3 ${accent ? 'border-accent/30' : ''}`}>
-            {it}
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
