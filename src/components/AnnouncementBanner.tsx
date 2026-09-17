@@ -1,10 +1,18 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Info, AlertTriangle, Wrench, Megaphone, X } from 'lucide-react'
 import { useAppSettings } from '../app/SettingsProvider'
 import { announcementActive } from '../lib/appSettings'
+import { ANN_DISMISSED_EVENT, ANN_DISMISS_KEY as DISMISS_KEY } from '../lib/inbox'
 import type { AnnouncementType } from '../lib/types'
 
-const DISMISS_KEY = 'tailor.ann.dismissed'
+function readDismissed(): number {
+  try {
+    const v = Number(localStorage.getItem(DISMISS_KEY))
+    return Number.isFinite(v) ? v : -1
+  } catch {
+    return -1
+  }
+}
 
 const STYLES: Record<AnnouncementType, { cls: string; icon: React.ReactNode }> = {
   info: { cls: 'bg-surface-elevated border-surface-border text-content-primary', icon: <Info size={18} /> },
@@ -15,10 +23,14 @@ const STYLES: Record<AnnouncementType, { cls: string; icon: React.ReactNode }> =
 
 export function AnnouncementBanner() {
   const { settings } = useAppSettings()
-  const [dismissedVersion, setDismissedVersion] = useState<number>(() => {
-    const v = Number(localStorage.getItem(DISMISS_KEY))
-    return Number.isFinite(v) ? v : -1
-  })
+  const [dismissedVersion, setDismissedVersion] = useState<number>(readDismissed)
+
+  // Lido no sininho = faixa fechada tambem (e vice-versa, ver inbox.ts).
+  useEffect(() => {
+    const sync = () => setDismissedVersion(readDismissed())
+    window.addEventListener(ANN_DISMISSED_EVENT, sync)
+    return () => window.removeEventListener(ANN_DISMISSED_EVENT, sync)
+  }, [])
 
   if (!announcementActive(settings) || !settings) return null
   if (dismissedVersion === settings.announcement_version) return null
@@ -27,8 +39,13 @@ export function AnnouncementBanner() {
 
   function dismiss() {
     if (!settings) return
-    localStorage.setItem(DISMISS_KEY, String(settings.announcement_version))
+    try {
+      localStorage.setItem(DISMISS_KEY, String(settings.announcement_version))
+    } catch {
+      /* ignore */
+    }
     setDismissedVersion(settings.announcement_version)
+    window.dispatchEvent(new Event(ANN_DISMISSED_EVENT))
   }
 
   return (

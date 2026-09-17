@@ -19,6 +19,13 @@ import { useT } from '../lib/i18n'
 
 const HIDE_MOBILE_NAV_ON = ['/nota/', '/capturar']
 
+/**
+ * Telas de grade (cards) que usam a largura toda em monitor grande -- no app Windows em tela
+ * cheia o max-w-6xl deixava faixas vazias enormes dos lados (pedido de 17/09/2026). Telas de
+ * leitura (nota, configuracoes, termos...) continuam com largura limitada.
+ */
+const WIDE_ROUTES = ['/', '/admin', '/amigos', '/compartilhados']
+
 interface Item {
   to: string
   icon: React.ReactNode
@@ -240,6 +247,7 @@ export function AppShell() {
   const { settings } = useAppSettings()
   const hideMobileNav = HIDE_MOBILE_NAV_ON.some((p) => location.pathname.startsWith(p))
   const showBanner = announcementActive(settings)
+  const wide = WIDE_ROUTES.includes(location.pathname)
 
   const [helpOpen, setHelpOpen] = useState(false)
 
@@ -317,7 +325,7 @@ export function AppShell() {
       {/* Recolhida: o conteudo ocupa a pagina toda (so o respiro do botao de reabrir). */}
       <div className={collapsed ? 'md:pl-14' : 'md:pl-64'}>
         <main
-          className={`mx-auto w-full max-w-6xl overflow-x-hidden ${hideMobileNav ? '' : 'pb-nav'} ${
+          className={`mx-auto w-full ${wide ? 'max-w-none' : 'max-w-6xl'} overflow-x-hidden ${hideMobileNav ? '' : 'pb-nav'} ${
             showBanner ? 'has-announcement' : ''
           }`}
         >

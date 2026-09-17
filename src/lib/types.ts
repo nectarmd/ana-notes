@@ -139,6 +139,29 @@ export interface SupportTicket {
   message: string
   status: 'aberto' | 'resolvido'
   created_at: string
+  /** Resposta do admin (0042). */
+  reply?: string | null
+  replied_at?: string | null
+  replied_by?: string | null
+  /** Contexto tecnico enviado junto (versao do site/app, dispositivo). */
+  meta?: Record<string, string> | null
+}
+
+/** Aviso do sininho publicado pelo admin (0042). */
+export type NoticeKind = 'info' | 'novidade' | 'alerta' | 'manutencao'
+export type NoticeAudience = 'all' | 'windows' | 'admins'
+export interface Notice {
+  id: string
+  title: string
+  body: string
+  link: string | null
+  kind: NoticeKind
+  audience: NoticeAudience
+  starts_at: string | null
+  ends_at: string | null
+  active: boolean
+  created_by: string | null
+  created_at: string
 }
 
 export type NoteSourceType = 'recording' | 'upload' | 'file' | 'link' | 'call' | 'video' | 'image'

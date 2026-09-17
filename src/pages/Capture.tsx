@@ -48,7 +48,7 @@ import {
 import { isSilentAudio, audioRms } from '../lib/audioLevel'
 import { currentDevice } from '../lib/device'
 import { fmtClock, fmtDuration } from '../lib/format'
-import { Spinner } from '../components/ui'
+import { AutoTextarea, Spinner } from '../components/ui'
 import { ConsentSheet, RecordingNotice } from '../components/ConsentSheet'
 import { hasRecordingConsent, setRecordingConsent } from '../lib/consent'
 import { takePendingUpload } from '../lib/sharedFile'
@@ -1366,8 +1366,10 @@ export function Capture() {
             </p>
           )}
           <div className="text-center text-content-muted text-sm">ou cole o texto abaixo</div>
-          <textarea
-            className="input min-h-[160px] resize-none"
+          <AutoTextarea
+            minRows={6}
+            maxRows={16}
+            className="leading-relaxed"
             placeholder="Cole aqui o texto a ser resumido..."
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}

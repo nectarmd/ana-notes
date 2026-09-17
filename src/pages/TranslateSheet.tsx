@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Languages, Copy, Check } from 'lucide-react'
-import { Sheet, Spinner } from '../components/ui'
+import { AutoTextarea, Sheet, Spinner } from '../components/ui'
 import { translateText } from '../lib/ai'
 import { useT } from '../lib/i18n'
 import { useToast } from '../components/Toast'
@@ -74,7 +74,7 @@ export function TranslateSheet({
 
       {text && (
         <>
-          <textarea className="input min-h-[200px] resize-y mb-3 leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} />
+          <AutoTextarea minRows={8} maxRows={18} className="mb-3 leading-relaxed" value={text} onChange={(e) => setText(e.target.value)} />
           <button className="btn-primary w-full" onClick={copy}>
             {copied ? <Check size={18} /> : <Copy size={18} />}
             {copied ? t('tr.copied') : t('tr.copyTr')}

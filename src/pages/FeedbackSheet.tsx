@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Sparkles, Copy, Check, Mail } from 'lucide-react'
-import { Sheet, Spinner } from '../components/ui'
+import { AutoTextarea, Sheet, Spinner } from '../components/ui'
 import { generateFeedback } from '../lib/ai'
 import type { FeedbackAudience, FeedbackTone } from '../lib/ai'
 import { db } from '../lib/api'
@@ -135,8 +135,10 @@ export function FeedbackSheet({
 
       {text && (
         <>
-          <textarea
-            className="input min-h-[220px] resize-y mb-3 leading-relaxed"
+          <AutoTextarea
+            minRows={8}
+            maxRows={18}
+            className="mb-3 leading-relaxed"
             value={text}
             onChange={(e) => setText(e.target.value)}
           />

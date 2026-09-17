@@ -1,26 +1,39 @@
 import { useEffect, useState } from 'react'
-import { Wrench, Check } from 'lucide-react'
+import { AlertTriangle, Check } from 'lucide-react'
 import { getAppSettings, updateAppSettings } from '../lib/appSettings'
 import { useAppSettings } from '../app/SettingsProvider'
 import type { AppSettings } from '../lib/types'
-import { Spinner } from '../components/ui'
+import { AutoTextarea, Spinner } from '../components/ui'
+import { logSilentError } from '../lib/auditLog'
+import { useToast } from '../components/Toast'
 
-export function AdminSettings() {
+/**
+ * Formulario do modo manutencao. Desde 17/09/2026 abre numa folha a partir do cartao
+ * "Modo manutenção" do painel (antes ocupava meia tela fixa no topo do /admin).
+ */
+export function MaintenanceForm({ onDone }: { onDone?: () => void }) {
   const { refresh } = useAppSettings()
+  const toast = useToast()
   const [s, setS] = useState<AppSettings | null>(null)
-  const [savingMaint, setSavingMaint] = useState(false)
-  const [okMaint, setOkMaint] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [ok, setOk] = useState(false)
 
   useEffect(() => {
     getAppSettings().then(setS)
   }, [])
 
-  if (!s) return null
+  if (!s) {
+    return (
+      <div className="grid place-items-center py-10">
+        <Spinner className="text-accent" />
+      </div>
+    )
+  }
   const set = (patch: Partial<AppSettings>) => setS({ ...s, ...patch })
 
-  async function saveMaintenance(enabled: boolean) {
+  async function save(enabled: boolean) {
     if (!s) return
-    setSavingMaint(true)
+    setSaving(true)
     try {
       const next = await updateAppSettings({
         maintenance_enabled: enabled,
@@ -29,61 +42,65 @@ export function AdminSettings() {
       })
       setS(next)
       await refresh()
-      setOkMaint(true)
-      setTimeout(() => setOkMaint(false), 1800)
+      setOk(true)
+      toast(enabled ? 'Manutenção publicada' : 'Manutenção encerrada')
+      setTimeout(() => {
+        setOk(false)
+        onDone?.()
+      }, 900)
+    } catch (err) {
+      logSilentError('client:MaintenanceForm.save', err)
+      toast('Não foi possível salvar a manutenção', 'error')
     } finally {
-      setSavingMaint(false)
+      setSaving(false)
     }
   }
 
   return (
-    // Sem margem/largura propria: o layout (lado a lado com os KPIs) e decidido por quem chama.
-    <div className="h-full">
-      {/* Manutencao. Faixa de avisos foi pra /admin/dicas, junto com as Dicas. */}
-      <div className="card p-5 h-full">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="flex items-center gap-2 font-display font-semibold">
-            <Wrench size={18} className="text-accent" /> Modo manutencao
-          </h3>
-          {s.maintenance_enabled && (
-            <span className="text-[10px] uppercase tracking-wide bg-brand-solid text-white px-2 py-0.5 rounded-full">
-              ativo
-            </span>
-          )}
-        </div>
-
-        <label className="label">Mensagem de manutencao</label>
-        <textarea
-          className="input min-h-[80px] resize-none mb-3"
-          placeholder="Estamos aprimorando a plataforma."
-          value={s.maintenance_message}
-          onChange={(e) => set({ maintenance_message: e.target.value })}
-        />
-
-        <label className="label">Previsao de retorno (opcional)</label>
-        <input
-          className="input mb-4"
-          placeholder="Ex: hoje as 18h"
-          value={s.maintenance_eta}
-          onChange={(e) => set({ maintenance_eta: e.target.value })}
-        />
-
-        {s.maintenance_enabled ? (
-          <button className="btn-outline w-full text-accent" onClick={() => saveMaintenance(false)} disabled={savingMaint}>
-            {savingMaint ? <Spinner /> : null} Remover manutencao
-          </button>
-        ) : (
-          <>
-            <div className="alert-error text-xs mb-3">
-              Ao publicar, o app fica bloqueado para todos (você, como admin, continua com acesso).
-            </div>
-            <button className="btn-primary w-full" onClick={() => saveMaintenance(true)} disabled={savingMaint}>
-              {savingMaint ? <Spinner /> : okMaint ? <Check size={18} /> : null}
-              {okMaint ? 'Publicado' : 'Publicar manutencao'}
-            </button>
-          </>
-        )}
+    <div>
+      <div
+        className={`flex items-center gap-2 rounded-xl px-3 py-2 mb-4 text-sm ${
+          s.maintenance_enabled ? 'bg-accent/10 text-accent' : 'bg-surface-elevated text-content-secondary'
+        }`}
+      >
+        <span className={`h-2 w-2 rounded-full ${s.maintenance_enabled ? 'bg-brand-solid animate-pulse' : 'bg-emerald-500'}`} />
+        {s.maintenance_enabled ? 'Ativo: o app está bloqueado para os usuários' : 'Desligado: o app está funcionando normalmente'}
       </div>
+
+      <label className="label">Mensagem para os usuários</label>
+      <AutoTextarea
+        minRows={3}
+        maxRows={8}
+        className="mb-3"
+        placeholder="Estamos aprimorando a plataforma."
+        value={s.maintenance_message}
+        onChange={(e) => set({ maintenance_message: e.target.value })}
+      />
+
+      <label className="label">Previsão de retorno (opcional)</label>
+      <input
+        className="input mb-4"
+        placeholder="Ex.: hoje às 18h"
+        value={s.maintenance_eta}
+        onChange={(e) => set({ maintenance_eta: e.target.value })}
+      />
+
+      {s.maintenance_enabled ? (
+        <button className="btn-outline w-full text-accent" onClick={() => save(false)} disabled={saving}>
+          {saving ? <Spinner /> : ok ? <Check size={18} /> : null} Encerrar manutenção
+        </button>
+      ) : (
+        <>
+          <p className="flex items-start gap-2 text-xs text-content-muted mb-3">
+            <AlertTriangle size={14} className="shrink-0 mt-0.5 text-amber-500" />
+            Ao publicar, o app fica bloqueado para todos. Você, como administrador, continua com acesso.
+          </p>
+          <button className="btn-primary w-full" onClick={() => save(true)} disabled={saving}>
+            {saving ? <Spinner /> : ok ? <Check size={18} /> : null}
+            {ok ? 'Publicado' : 'Publicar manutenção'}
+          </button>
+        </>
+      )}
     </div>
   )
 }

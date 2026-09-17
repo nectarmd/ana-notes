@@ -35,6 +35,7 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { Logo } from '../components/Logo'
 import { NewNoteSheet } from '../components/NewNoteSheet'
 import { AnnouncementBanner } from '../components/AnnouncementBanner'
+import { NotificationBell } from '../components/NotificationBell'
 import { AskNotesSheet } from './AskNotesSheet'
 import { FolderSheet } from './FolderSheet'
 import { getNotifPrefs, notify } from '../lib/notifications'
@@ -334,17 +335,21 @@ export function Home() {
             <Logo part="tailor" heightClass="h-[17px]" />
           </div>
         </div>
-        <div className="flex items-center justify-between">
-          <h1 className="font-display text-2xl sm:text-3xl font-bold whitespace-nowrap">{t('home.title')}</h1>
-          {/* No desktop, os controles vao para o canto superior direito da tela */}
-          <div className="flex items-center gap-2 md:fixed md:top-5 md:right-8 md:z-40">
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="font-display text-2xl sm:text-3xl font-bold whitespace-nowrap min-w-0 truncate">{t('home.title')}</h1>
+          {/* Controles no canto direito do proprio cabecalho. Antes eram position:fixed no desktop,
+              soltos por cima do conteudo; com a Home ocupando a largura toda eles ficam alinhados
+              ao titulo. O sininho fica logo ao lado da pasta (pedido de 17/09/2026). */}
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => setFolderOpen(true)}
-              aria-label="Pastas"
+              aria-label={t('home.folders')}
+              title={t('home.folders')}
               className="grid place-items-center h-10 w-10 rounded-full bg-surface-elevated border border-surface-border text-content-secondary hover:text-content-primary"
             >
               <FolderIcon size={18} />
             </button>
+            <NotificationBell />
             {supportsCheckForUpdates && (
               <button
                 onClick={() => {
@@ -369,7 +374,10 @@ export function Home() {
                 )}
               </button>
             )}
-            <ThemeToggle />
+            {/* No celular o tema fica em Configuracoes: o espaco do cabecalho e do sininho. */}
+            <div className="hidden md:block">
+              <ThemeToggle />
+            </div>
             {/* No desktop o perfil ja esta na sidebar (foto do usuario). Aqui e so mobile. */}
             <button onClick={() => navigate('/config')} aria-label="Perfil" className="md:hidden">
               {profile && <Avatar first={profile.first_name} last={profile.last_name} url={profile.avatar_url} />}
@@ -378,6 +386,12 @@ export function Home() {
         </div>
       </header>
 
+      {/* Tela larga (xl+, app Windows em tela cheia): duas colunas -- as notas ocupam toda a
+          largura que sobra e a lateral fixa (sticky) guarda conversa, dica e agenda. Abaixo de xl
+          e uma coluna so, na mesma ordem de antes. A <aside> vem primeiro no DOM para manter essa
+          ordem no celular; no xl o `order` a joga para a direita. */}
+      <div className="xl:flex xl:items-start xl:gap-6">
+      <aside className="xl:order-2 xl:w-[22rem] xl:shrink-0 xl:sticky xl:top-6">
       {/* So no desktop: no mobile (PWA/APK inclusive), aviso+dica aqui em cima empurravam
           "conversar com todas as reuniões" pra baixo e atrapalhavam o layout -- versao mobile
           fica reposicionada depois daquele botao (abaixo). */}
@@ -406,7 +420,9 @@ export function Home() {
       </div>
 
       <UpcomingEvents />
+      </aside>
 
+      <section className="xl:order-1 flex-1 min-w-0">
       {/* Busca + filtro de ordenacao (icone a direita, dentro do proprio card) */}
       <div className="relative mb-3" ref={sortRef}>
         <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" />
@@ -481,7 +497,7 @@ export function Home() {
 
       <div className="pb-2">
       {notes === null ? (
-        <ul className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-2">
+        <ul className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(16.5rem,1fr))] gap-3 mt-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <li key={i}>
               <NoteCardSkeleton />
@@ -519,7 +535,7 @@ export function Home() {
           />
         )
       ) : (
-        <ul className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 mt-2">
+        <ul className="grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(16.5rem,1fr))] gap-3 mt-2">
           {filtered.map((n) => {
             const fc = folderColor(n.folder_id)
             const daysLeft = audioDaysLeft(n, retention)
@@ -594,6 +610,8 @@ export function Home() {
           })}
         </ul>
       )}
+      </div>
+      </section>
       </div>
 
       {/* FAB da ANA (MOBILE): no desktop a ANA fica no shell, global e com balao. */}

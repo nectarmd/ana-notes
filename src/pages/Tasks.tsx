@@ -7,7 +7,7 @@ import { createTask, deleteTask, listTasks, updateTask, tasksEnabled } from '../
 import type { ActionItem, Note, Task, TaskPriority } from '../lib/types'
 import { TASK_TEXT_MAX } from '../lib/types'
 import { fmtDate } from '../lib/format'
-import { ConfirmDialog, EmptyState, NoteCardSkeleton, Chip, Sheet, Spinner } from '../components/ui'
+import { AutoTextarea, ConfirmDialog, EmptyState, NoteCardSkeleton, Chip, Sheet, Spinner } from '../components/ui'
 import { PRIORITIES, PRIORITY_META, PriorityPicker, TaskFlag } from '../components/TaskPriority'
 import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
@@ -121,7 +121,10 @@ export function TasksPage() {
     if (!notes) return []
     const all: Row[] = []
     for (const n of notes) {
-      for (const item of n.action_items) all.push({ key: item.id, item, priority: item.priority ?? 'normal', note: n, task: null })
+      // A chave inclui a nota: itens de notas antigas tem ids curtos ('1', '2'...) que se repetem entre
+      // notas -- como chave sozinha, o React confundia linhas (74 repeticoes no banco em 17/09/2026).
+      for (const item of n.action_items)
+        all.push({ key: `${n.id}:${item.id}`, item, priority: item.priority ?? 'normal', note: n, task: null })
     }
     for (const tk of tasks) {
       all.push({
@@ -421,8 +424,10 @@ export function TasksPage() {
       <Sheet open={formOpen} onClose={() => setFormOpen(false)} title={editing ? t('tasks.edit') : t('tasks.new')}>
         <div className="mb-3">
           <label className="label">{t('tasks.text')}</label>
-          <textarea
-            className="input min-h-20 resize-none"
+          <AutoTextarea
+            minRows={3}
+            maxRows={10}
+            className="leading-relaxed"
             maxLength={textMax}
             placeholder={t('tasks.textPlaceholder')}
             value={draft.text}

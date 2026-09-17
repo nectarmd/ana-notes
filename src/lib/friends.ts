@@ -163,3 +163,18 @@ export async function unreadCount(me: string): Promise<number> {
     .is('read_at', null)
   return count ?? 0
 }
+
+/** Quantas notas cada pessoa ja me enviou (copias vivas, fora da lixeira). */
+export async function receivedCountBySender(me: string): Promise<Map<string, number>> {
+  if (!supabase) return new Map()
+  const { data, error } = await client()
+    .from('notes')
+    .select('shared_by')
+    .eq('user_id', me)
+    .not('shared_by', 'is', null)
+    .is('deleted_at', null)
+  if (error) throw error
+  const counts = new Map<string, number>()
+  for (const r of (data ?? []) as { shared_by: string }[]) counts.set(r.shared_by, (counts.get(r.shared_by) ?? 0) + 1)
+  return counts
+}

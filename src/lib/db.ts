@@ -43,7 +43,17 @@ export interface Db {
   deleteFolder(id: string): Promise<void>
 
   // --- suporte ---
-  createTicket(input: { user_id: string; topic: TicketTopic; subject: string; message: string }): Promise<void>
+  createTicket(input: {
+    user_id: string
+    topic: TicketTopic
+    subject: string
+    message: string
+    meta?: Record<string, string>
+  }): Promise<void>
+  /** Admin: grava a resposta (a pessoa ve em Suporte e no sininho) e marca como resolvido. */
+  replyTicket(id: string, reply: string, adminId: string): Promise<void>
+  /** Admin: resolve ou reabre um chamado. */
+  setTicketStatus(id: string, status: 'aberto' | 'resolvido'): Promise<void>
   /** Todos os chamados (admin). */
   listTickets(): Promise<(SupportTicket & { profile?: Profile })[]>
   /** Apenas os chamados do proprio usuario. */

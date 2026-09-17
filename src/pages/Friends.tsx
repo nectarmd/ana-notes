@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Hand, Info, Plus, Search, Send, Trash2, UserPlus, Users } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import {
+  ArrowLeft,
+  Check,
+  ChevronRight,
+  Hand,
+  Info,
+  MessageCircle,
+  Search,
+  Send,
+  Share2,
+  UserMinus,
+  UserPlus,
+  Users,
+  X,
+} from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import {
   acceptInvite,
@@ -9,6 +23,7 @@ import {
   listMessages,
   markRead,
   poke,
+  receivedCountBySender,
   removeFriendship,
   searchPeople,
   sendMessage,
@@ -18,6 +33,7 @@ import { Avatar, ConfirmDialog, EmptyState, Sheet, Spinner } from '../components
 import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
 import { logSilentError } from '../lib/auditLog'
+import { INBOX_CHANGED } from '../lib/inbox'
 
 const fullName = (p: PersonRef) => `${p.first_name} ${p.last_name}`.trim()
 
@@ -261,18 +277,39 @@ function AddFriendSheet({
 }
 
 /* ---------------- Pagina ---------------- */
+
+function SectionTitle({ children, count }: { children: React.ReactNode; count: number }) {
+  return (
+    <h2 className="flex items-center gap-2 text-xs uppercase tracking-wide text-content-muted mb-2 px-1">
+      {children}
+      <span className="rounded-full bg-surface-elevated border border-surface-border px-1.5 text-[10px] tabular-nums normal-case">
+        {count}
+      </span>
+    </h2>
+  )
+}
+
+/**
+ * Amigos (/amigos). Reorganizada em 17/09/2026: secoes com contagem (convites recebidos, amigos,
+ * convites enviados), cartoes em grade que usam a largura da tela, busca quando a lista cresce,
+ * "Conversar" explicito com as nao lidas e quantas notas cada pessoa ja te enviou (atalho para
+ * Compartilhados comigo filtrado). O sininho abre o chat direto via ?chat=<id>.
+ */
 export function FriendsPage() {
   const { profile } = useAuth()
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const t = useT()
   const toast = useToast()
   const me = profile?.id ?? ''
 
   const [edges, setEdges] = useState<FriendEdge[] | null>(null)
+  const [received, setReceived] = useState<Map<string, number>>(new Map())
   const [addOpen, setAddOpen] = useState(false)
   const [chatWith, setChatWith] = useState<PersonRef | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [pendingRemove, setPendingRemove] = useState<FriendEdge | null>(null)
+  const [filter, setFilter] = useState('')
 
   const refresh = useCallback(() => {
     if (!me) return
@@ -283,10 +320,25 @@ export function FriendsPage() {
         logSilentError('client:Friends.refresh', err)
         toast(t('common.error'), 'error')
       })
+    receivedCountBySender(me)
+      .then(setReceived)
+      .catch(() => setReceived(new Map()))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [me])
 
   useEffect(refresh, [refresh])
+
+  // Vindo do sininho: abre a conversa com quem mandou a mensagem.
+  const chatParam = params.get('chat')
+  useEffect(() => {
+    if (!chatParam || !edges) return
+    const edge = edges.find((e) => e.person.id === chatParam && e.friendship.status === 'accepted')
+    if (edge) setChatWith(edge.person)
+    const next = new URLSearchParams(params)
+    next.delete('chat')
+    setParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatParam, edges])
 
   const incoming = useMemo(() => (edges ?? []).filter((e) => e.incoming), [edges])
   const accepted = useMemo(() => (edges ?? []).filter((e) => e.friendship.status === 'accepted'), [edges])
@@ -295,6 +347,15 @@ export function FriendsPage() {
     [edges],
   )
   const knownIds = useMemo(() => (edges ?? []).map((e) => e.person.id), [edges])
+
+  const shownFriends = useMemo(() => {
+    const q = filter.trim().toLowerCase()
+    const list = q
+      ? accepted.filter((e) => `${fullName(e.person)} ${e.person.email}`.toLowerCase().includes(q))
+      : [...accepted]
+    // Quem tem mensagem nova primeiro; depois por nome.
+    return list.sort((a, b) => b.unread - a.unread || fullName(a.person).localeCompare(fullName(b.person), 'pt-BR'))
+  }, [accepted, filter])
 
   async function run(key: string, fn: () => Promise<unknown>, okMsg?: string) {
     setBusy(key)
@@ -310,130 +371,196 @@ export function FriendsPage() {
     }
   }
 
+  const empty = edges !== null && accepted.length === 0 && outgoing.length === 0 && incoming.length === 0
+
   return (
-    <div className="px-5 safe-top">
-      <header className="flex items-center gap-3 mb-2">
+    <div className="px-5 safe-top pb-28 md:pb-12">
+      <header className="flex items-center gap-3 mb-6">
+        {/* No computador o menu lateral ja leva de volta; a seta fica so no celular. */}
         <button
           onClick={() => navigate('/config')}
-          className="grid place-items-center h-10 w-10 rounded-full bg-surface-elevated border border-surface-border"
+          className="md:hidden grid place-items-center h-10 w-10 rounded-full bg-surface-elevated border border-surface-border shrink-0"
           aria-label="Voltar"
         >
           <ArrowLeft size={18} />
         </button>
-        <h1 className="font-display text-2xl font-bold flex-1">{t('friends.title')}</h1>
-        <button
-          onClick={() => setAddOpen(true)}
-          className="btn-primary h-10 w-10 rounded-full p-0"
-          aria-label={t('friends.add')}
-        >
-          <Plus size={20} />
+        <div className="min-w-0 flex-1">
+          <h1 className="font-display text-2xl font-bold">{t('friends.title')}</h1>
+          <p className="flex items-start gap-1.5 text-xs text-content-muted mt-0.5">
+            <Info size={13} className="shrink-0 mt-0.5" />
+            <span>{t('friends.ephemeral')}</span>
+          </p>
+        </div>
+        <button onClick={() => setAddOpen(true)} className="btn-primary h-10 px-3 text-sm shrink-0" aria-label={t('friends.add')}>
+          <UserPlus size={17} />
+          <span className="hidden sm:inline">{t('friends.add')}</span>
         </button>
       </header>
-
-      <p className="flex items-start gap-1.5 text-xs text-content-muted mb-6">
-        <Info size={13} className="shrink-0 mt-0.5" />
-        <span>{t('friends.ephemeral')}</span>
-      </p>
-
-      {incoming.length > 0 && (
-        <>
-          <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('friends.requests')}</p>
-          <ul className="space-y-2 mb-6">
-            {incoming.map((e) => (
-              <li key={e.friendship.id} className="card p-3 flex items-center gap-3">
-                <Avatar first={e.person.first_name} last={e.person.last_name} size={40} url={e.person.avatar_url} />
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-sm truncate">{fullName(e.person)}</p>
-                  <p className="text-xs text-content-muted truncate">{e.person.email}</p>
-                </div>
-                <button
-                  onClick={() => run(e.friendship.id, () => acceptInvite(e.friendship.id), t('friends.accepted'))}
-                  disabled={busy === e.friendship.id}
-                  className="btn-primary h-9 px-3 text-sm shrink-0"
-                >
-                  {t('friends.accept')}
-                </button>
-                <button
-                  onClick={() => run(e.friendship.id, () => removeFriendship(e.friendship.id, me, e.person.id))}
-                  disabled={busy === e.friendship.id}
-                  className="btn-ghost h-9 px-3 text-sm shrink-0"
-                >
-                  {t('friends.decline')}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
 
       {edges === null ? (
         <div className="grid place-items-center py-16">
           <Spinner className="text-accent" />
         </div>
-      ) : accepted.length === 0 && outgoing.length === 0 ? (
-        <EmptyState icon={<Users size={40} />} title={t('friends.emptyTitle')} subtitle={t('friends.emptySub')} />
+      ) : empty ? (
+        <EmptyState
+          icon={<Users size={40} />}
+          title={t('friends.emptyTitle')}
+          subtitle={t('friends.emptySub')}
+          action={
+            <button className="btn-primary" onClick={() => setAddOpen(true)}>
+              <UserPlus size={17} /> {t('friends.add')}
+            </button>
+          }
+        />
       ) : (
-        <ul className="space-y-2 pb-28 md:pb-10">
-          {accepted.map((e) => (
-            <li key={e.friendship.id} className="card p-3 flex items-center gap-3">
-              <button
-                onClick={() => setChatWith(e.person)}
-                className="flex items-center gap-3 min-w-0 flex-1 text-left"
-              >
-                <div className="relative shrink-0">
-                  <Avatar first={e.person.first_name} last={e.person.last_name} size={40} url={e.person.avatar_url} />
-                  {e.unread > 0 && (
-                    <span className="absolute -top-1 -right-1 grid place-items-center min-w-4 h-4 px-1 rounded-full bg-brand-solid text-white text-[10px] font-semibold">
-                      {e.unread}
-                    </span>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="font-medium text-sm truncate">{fullName(e.person)}</p>
-                  <p className="text-xs text-content-muted truncate">{e.person.email}</p>
-                </div>
-              </button>
+        <div className="space-y-8">
+          {incoming.length > 0 && (
+            <section>
+              <SectionTitle count={incoming.length}>{t('friends.requests')}</SectionTitle>
+              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))]">
+                {incoming.map((e) => (
+                  <li key={e.friendship.id} className="card p-4 border-accent/30">
+                    <div className="flex items-center gap-3">
+                      <Avatar first={e.person.first_name} last={e.person.last_name} size={44} url={e.person.avatar_url} />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-sm truncate">{fullName(e.person)}</p>
+                        <p className="text-xs text-content-muted truncate">{e.person.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={() => run(e.friendship.id, () => acceptInvite(e.friendship.id), t('friends.accepted'))}
+                        disabled={busy === e.friendship.id}
+                        className="btn-primary h-9 px-3 text-sm flex-1"
+                      >
+                        {busy === e.friendship.id ? <Spinner size={14} /> : <Check size={15} />} {t('friends.accept')}
+                      </button>
+                      <button
+                        onClick={() => run(e.friendship.id, () => removeFriendship(e.friendship.id, me, e.person.id))}
+                        disabled={busy === e.friendship.id}
+                        className="btn-outline h-9 px-3 text-sm flex-1"
+                      >
+                        {t('friends.decline')}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
-              <button
-                onClick={() => run(`poke-${e.person.id}`, () => poke(me, e.person.id), t('friends.pokeSent'))}
-                disabled={busy === `poke-${e.person.id}`}
-                title={t('friends.poke')}
-                aria-label={t('friends.poke')}
-                className="grid place-items-center h-9 w-9 rounded-xl bg-surface-elevated border border-surface-border text-accent shrink-0"
-              >
-                {busy === `poke-${e.person.id}` ? <Spinner size={15} /> : <Hand size={17} />}
-              </button>
-
-              <button
-                onClick={() => setPendingRemove(e)}
-                disabled={busy === e.friendship.id}
-                title={t('friends.remove')}
-                aria-label={t('friends.remove')}
-                className="grid place-items-center h-9 w-9 rounded-xl text-content-muted hover:text-accent shrink-0"
-              >
-                <Trash2 size={16} />
-              </button>
-            </li>
-          ))}
-
-          {outgoing.map((e) => (
-            <li key={e.friendship.id} className="card p-3 flex items-center gap-3 opacity-70">
-              <Avatar first={e.person.first_name} last={e.person.last_name} size={40} url={e.person.avatar_url} />
-              <div className="min-w-0 flex-1">
-                <p className="font-medium text-sm truncate">{fullName(e.person)}</p>
-                <p className="text-xs text-content-muted">{t('friends.pending')}</p>
+          {accepted.length > 0 && (
+            <section>
+              <div className="flex flex-wrap items-end gap-3 mb-2">
+                <SectionTitle count={accepted.length}>{t('friends.mine')}</SectionTitle>
+                {accepted.length > 6 && (
+                  <div className="relative ml-auto w-full sm:w-64 mb-2">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-muted" />
+                    <input
+                      className="input h-9 py-0 pl-9 text-sm"
+                      placeholder={t('friends.filter')}
+                      value={filter}
+                      onChange={(ev) => setFilter(ev.target.value)}
+                    />
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => setPendingRemove(e)}
-                disabled={busy === e.friendship.id}
-                className="grid place-items-center h-9 w-9 rounded-xl text-content-muted hover:text-accent shrink-0"
-                aria-label={t('friends.decline')}
-              >
-                <Trash2 size={16} />
-              </button>
-            </li>
-          ))}
-        </ul>
+              {shownFriends.length === 0 ? (
+                <p className="text-sm text-content-muted px-1">{t('friends.noResults')}</p>
+              ) : (
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))]">
+                  {shownFriends.map((e) => {
+                    const notes = received.get(e.person.id) ?? 0
+                    return (
+                      <li key={e.friendship.id} className="card p-4 flex flex-col">
+                        <div className="flex items-center gap-3">
+                          <div className="relative shrink-0">
+                            <Avatar first={e.person.first_name} last={e.person.last_name} size={44} url={e.person.avatar_url} />
+                            {e.unread > 0 && (
+                              <span className="absolute -top-1 -right-1 grid place-items-center min-w-[18px] h-[18px] px-1 rounded-full bg-brand-solid text-white text-[10px] font-bold ring-2 ring-surface-card">
+                                {e.unread}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm truncate">{fullName(e.person)}</p>
+                            <p className="text-xs text-content-muted truncate">{e.person.email}</p>
+                          </div>
+                          <button
+                            onClick={() => setPendingRemove(e)}
+                            disabled={busy === e.friendship.id}
+                            title={t('friends.remove')}
+                            aria-label={t('friends.remove')}
+                            className="grid place-items-center h-8 w-8 rounded-lg text-content-muted hover:text-accent shrink-0"
+                          >
+                            <UserMinus size={16} />
+                          </button>
+                        </div>
+
+                        <button
+                          onClick={() => navigate(`/compartilhados?de=${e.person.id}`)}
+                          disabled={notes === 0}
+                          className="mt-3 flex items-center gap-1.5 text-xs text-content-muted enabled:hover:text-accent disabled:cursor-default text-left"
+                        >
+                          <Share2 size={13} className="shrink-0" />
+                          {notes === 0
+                            ? t('friends.notesNone')
+                            : t(notes === 1 ? 'friends.notesOne' : 'friends.notesMany').replace('{n}', String(notes))}
+                          {notes > 0 && <ChevronRight size={13} />}
+                        </button>
+
+                        <div className="flex gap-2 mt-3 pt-3 border-t border-surface-border">
+                          <button
+                            onClick={() => setChatWith(e.person)}
+                            className={`${e.unread > 0 ? 'btn-primary' : 'btn-outline'} h-9 px-3 text-sm flex-1`}
+                          >
+                            <MessageCircle size={15} />
+                            {e.unread > 0 ? t('friends.chatUnread').replace('{n}', String(e.unread)) : t('friends.chat')}
+                          </button>
+                          <button
+                            onClick={() => run(`poke-${e.person.id}`, () => poke(me, e.person.id), t('friends.pokeSent'))}
+                            disabled={busy === `poke-${e.person.id}`}
+                            title={t('friends.poke')}
+                            className="btn-ghost h-9 px-3 text-sm text-accent"
+                          >
+                            {busy === `poke-${e.person.id}` ? <Spinner size={15} /> : <Hand size={16} />}
+                            {t('friends.poke')}
+                          </button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </section>
+          )}
+
+          {outgoing.length > 0 && (
+            <section>
+              <SectionTitle count={outgoing.length}>{t('friends.sent')}</SectionTitle>
+              <ul className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(20rem,1fr))]">
+                {outgoing.map((e) => (
+                  <li key={e.friendship.id} className="card p-3 flex items-center gap-3">
+                    <Avatar first={e.person.first_name} last={e.person.last_name} size={40} url={e.person.avatar_url} />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-sm truncate">{fullName(e.person)}</p>
+                      <p className="text-xs text-content-muted">{t('friends.pending')}</p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        run(e.friendship.id, () => removeFriendship(e.friendship.id, me, e.person.id), t('friends.cancelled'))
+                      }
+                      disabled={busy === e.friendship.id}
+                      className="btn-ghost h-9 px-3 text-xs text-content-muted hover:text-accent shrink-0"
+                    >
+                      {busy === e.friendship.id ? <Spinner size={13} /> : <X size={14} />} {t('friends.cancelInvite')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
       )}
 
       <ConfirmDialog
@@ -467,7 +594,10 @@ export function FriendsPage() {
           friend={chatWith}
           open={!!chatWith}
           onClose={() => setChatWith(null)}
-          onRead={refresh}
+          onRead={() => {
+            refresh()
+            window.dispatchEvent(new Event(INBOX_CHANGED))
+          }}
         />
       )}
     </div>

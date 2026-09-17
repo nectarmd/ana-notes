@@ -13,7 +13,7 @@ const DEFAULTS: AppSettings = {
   announcement_ends_at: null,
   announcement_version: 0,
   maintenance_enabled: false,
-  maintenance_message: 'Estamos em manutencao. Voltamos em breve.',
+  maintenance_message: 'Estamos em manutenção. Voltamos em breve.',
   maintenance_eta: '',
   tips_rotate_enabled: false,
   tips_rotate_hours: 72,

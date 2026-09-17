@@ -1,5 +1,5 @@
 import { Loader2, X, Flag } from 'lucide-react'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { createPortal } from 'react-dom'
 import { initials } from '../lib/format'
 import { useVisualViewport } from '../lib/useVisualViewport'
@@ -25,6 +25,58 @@ export function PriorityBadge({ level, className = '' }: { level: NotePriority; 
       {t(m.key)}
     </span>
   )
+}
+
+/**
+ * Caixa de texto que cresce com o conteudo. Com altura fixa + `resize-none`, texto maior que a
+ * caixa rolava por dentro e parecia vazar do quadro (relato de 17/09/2026, editar tarefa).
+ * Cresce de `minRows` ate `maxRows` linhas; dali em diante rola, com a barra so nesse caso.
+ */
+export function AutoTextarea({
+  minRows = 3,
+  maxRows = 12,
+  className = '',
+  value,
+  ...rest
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & { minRows?: number; maxRows?: number; value: string }) {
+  const ref = useRef<HTMLTextAreaElement | null>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    function fit() {
+      if (!el) return
+      const cs = getComputedStyle(el)
+      const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5 || 24
+      const chrome =
+        parseFloat(cs.paddingTop) +
+        parseFloat(cs.paddingBottom) +
+        parseFloat(cs.borderTopWidth) +
+        parseFloat(cs.borderBottomWidth)
+      const min = minRows * line + chrome
+      const max = maxRows * line + chrome
+      el.style.height = 'auto'
+      const needed = el.scrollHeight + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
+      el.style.height = `${Math.min(Math.max(needed, min), max)}px`
+      el.style.overflowY = needed > max ? 'auto' : 'hidden'
+    }
+    fit()
+    // A largura muda a quebra de linha (girar o celular, redimensionar a janela, abrir a folha).
+    // So a LARGURA importa: reagir a propria mudanca de altura seria um laco.
+    let lastWidth = el.clientWidth
+    const ro =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => {
+            if (el.clientWidth === lastWidth) return
+            lastWidth = el.clientWidth
+            fit()
+          })
+        : null
+    ro?.observe(el)
+    return () => ro?.disconnect()
+  }, [value, minRows, maxRows])
+
+  return <textarea ref={ref} rows={minRows} value={value} className={`input resize-none ${className}`} {...rest} />
 }
 
 export function Avatar({

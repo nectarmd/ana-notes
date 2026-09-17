@@ -230,8 +230,25 @@ export const mockDb: Db = {
       message: input.message,
       status: 'aberto',
       created_at: new Date().toISOString(),
+      meta: input.meta ?? null,
     })
     write(K.tickets, tickets)
+  },
+
+  async replyTicket(id, reply, adminId) {
+    const tickets = read<SupportTicket[]>(K.tickets, []).map((t) =>
+      t.id === id
+        ? { ...t, reply: reply.trim(), replied_at: new Date().toISOString(), replied_by: adminId, status: 'resolvido' as const }
+        : t,
+    )
+    write(K.tickets, tickets)
+  },
+
+  async setTicketStatus(id, status) {
+    write(
+      K.tickets,
+      read<SupportTicket[]>(K.tickets, []).map((t) => (t.id === id ? { ...t, status } : t)),
+    )
   },
 
   async listTickets() {

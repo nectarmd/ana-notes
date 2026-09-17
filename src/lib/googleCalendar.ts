@@ -198,8 +198,11 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
   }
 }
 
+/** Sem `range`: os proximos `max` eventos a partir de agora. Com `range`: os eventos daquele
+ *  intervalo (a Agenda pagina por mes). */
 export async function listUpcomingEvents(
   max = 5,
+  range?: { from: Date; to: Date },
 ): Promise<{ needsAuth: boolean; events: CalEvent[]; error?: CalError }> {
   const token = await getValidToken()
   if (!token) return { needsAuth: true, events: [] }
@@ -209,10 +212,12 @@ export async function listUpcomingEvents(
     return { needsAuth: false, events: [], error: { key: 'err.offline' } }
   }
 
-  const now = new Date().toISOString()
+  const timeMin = (range?.from ?? new Date()).toISOString()
   const url =
     `https://www.googleapis.com/calendar/v3/calendars/primary/events` +
-    `?timeMin=${encodeURIComponent(now)}&maxResults=${max}&singleEvents=true&orderBy=startTime`
+    `?timeMin=${encodeURIComponent(timeMin)}` +
+    (range ? `&timeMax=${encodeURIComponent(range.to.toISOString())}` : '') +
+    `&maxResults=${max}&singleEvents=true&orderBy=startTime`
   const init = { headers: { Authorization: `Bearer ${token}` } }
 
   let lastErr: unknown = null

@@ -153,9 +153,8 @@ export function UpdateBanner() {
           </div>,
           document.body,
         )}
-      {/* max-w + alinhado a esquerda: no app Windows a Home tem controles flutuantes no canto
-          superior direito (pasta/atualizar/tema, position:fixed z-40) -- uma barra ate a borda
-          direita deixava o botao "Atualizar agora" embaixo deles. Estreita, fica bem a esquerda. */}
+      {/* max-w + alinhado a esquerda: aviso curto, nao precisa atravessar a tela inteira (ate
+          17/09/2026 tambem evitava os controles flutuantes da Home, que hoje ficam no cabecalho). */}
       <div className="flex items-center gap-2.5 border border-accent/30 bg-accent/10 rounded-2xl px-4 py-2 mx-5 mt-4 max-w-xl text-sm">
       <ArrowUpCircle size={16} className="text-accent shrink-0" />
       <span className="flex-1 min-w-0 text-content-primary">

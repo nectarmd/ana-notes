@@ -38,7 +38,7 @@ import { pauseSpeaking, resumeSpeaking, speak, stopSpeaking, ttsSupported } from
 import { audioDaysLeft, retentionOf } from '../lib/retention'
 import { aiError } from '../lib/aiError'
 import { fmtDateTime, fmtDuration } from '../lib/format'
-import { Spinner, ConfirmDialog, PriorityBadge } from '../components/ui'
+import { AutoTextarea, Spinner, ConfirmDialog, PriorityBadge } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
 import { AudioPlayer } from '../components/AudioPlayer'
@@ -56,6 +56,7 @@ import { logSilentError } from '../lib/auditLog'
 import { SummaryView, TranscriptView } from '../components/NoteContent'
 import { TaskFlag } from '../components/TaskPriority'
 import { directoryByIds } from '../lib/directory'
+import { markKeysRead } from '../lib/inbox'
 
 type Tab = 'summary' | 'detailed' | 'analysis' | 'transcript'
 
@@ -105,6 +106,10 @@ export function NoteDetail() {
     if (!from) {
       setSharedByName('')
       return
+    }
+    // Abrir a nota recebida ja conta como lida no sininho.
+    if (note && profile && note.user_id === profile.id) {
+      markKeysRead(profile.id, [`shared:${note.id}`]).catch(() => {})
     }
     directoryByIds([from])
       .then((people) => {
@@ -789,7 +794,7 @@ export function NoteDetail() {
         {editField === 'title' ? (
           <input className="input mb-4" value={editValue} onChange={(e) => setEditValue(e.target.value)} />
         ) : (
-          <textarea className="input min-h-[220px] resize-y mb-4 leading-relaxed" value={editValue} onChange={(e) => setEditValue(e.target.value)} />
+          <AutoTextarea minRows={8} maxRows={18} className="mb-4 leading-relaxed" value={editValue} onChange={(e) => setEditValue(e.target.value)} />
         )}
         <div className="flex gap-3">
           <button className="btn-outline flex-1" onClick={() => setEditField(null)}>Cancelar</button>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CalendarDays, RefreshCw, Clock, Link2Off, Mic, Minus, Plus } from 'lucide-react'
 import {
@@ -17,8 +17,21 @@ import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
 import { AgendaView } from '../components/AgendaView'
 
-/** No modo pagina buscamos os proximos 50 eventos de uma vez, agrupados por dia. */
-const PAGE_MODE_MAX = 50
+/** No modo pagina a Agenda mostra UM mes por vez (antes: 50 eventos numa rolagem sem fim). */
+const MONTH_MAX = 250
+/** Ate onde da para navegar, em meses a partir do atual. */
+const MONTH_MIN_OFFSET = -6
+const MONTH_MAX_OFFSET = 12
+
+/** Mes atual comeca HOJE (quem abre a Agenda quer ver o que vem); os dias ja passados deste mes
+ *  aparecem sob demanda. Outros meses vem inteiros. */
+function monthRange(offset: number, showPast: boolean) {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth() + offset, 1)
+  const to = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1)
+  const from = offset === 0 && !showPast ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) : start
+  return { from, to, month: start }
+}
 
 export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
   const isPage = mode === 'page'
@@ -31,6 +44,10 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
   const [eventsOpen, setEventsOpen] = useState(false)
   const [error, setError] = useState<CalError | null>(null)
   const [minimized, setMinimized] = useState(false)
+  const [monthOffset, setMonthOffset] = useState(0)
+  const [showPast, setShowPast] = useState(false)
+  // Trocar de mes rapido dispara buscas em sequencia: so a ultima pode gravar o resultado.
+  const reqSeq = useRef(0)
   const toast = useToast()
   const t = useT()
   const navigate = useNavigate()
@@ -40,16 +57,29 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
     navigate(`/capturar?${qs.toString()}`)
   }
 
-  async function refresh() {
+  async function refresh(offset = monthOffset, past = showPast) {
+    const seq = ++reqSeq.current
     setLoading(true)
     try {
-      const r = await listUpcomingEvents(isPage ? PAGE_MODE_MAX : 10)
+      const r = isPage
+        ? await listUpcomingEvents(MONTH_MAX, monthRange(offset, past))
+        : await listUpcomingEvents(10)
+      if (seq !== reqSeq.current) return
       setNeedsAuth(r.needsAuth)
       setEvents(r.events)
       setError(r.error ?? null)
     } finally {
-      setLoading(false)
+      if (seq === reqSeq.current) setLoading(false)
     }
+  }
+
+  function goMonth(offset: number) {
+    const next = Math.min(MONTH_MAX_OFFSET, Math.max(MONTH_MIN_OFFSET, offset))
+    setMonthOffset(next)
+    setShowPast(false)
+    setEvents([])
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+    void refresh(next, false)
   }
 
   useEffect(() => {
@@ -138,9 +168,20 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
         events={events}
         loading={loading}
         error={errorBlock}
-        onRefresh={refresh}
+        onRefresh={() => refresh()}
         onDisconnect={disconnect}
         onRecord={recordFromEvent}
+        month={monthRange(monthOffset, showPast).month}
+        monthOffset={monthOffset}
+        canPrev={monthOffset > MONTH_MIN_OFFSET}
+        canNext={monthOffset < MONTH_MAX_OFFSET}
+        onMonth={goMonth}
+        showPast={showPast}
+        onShowPast={() => {
+          setShowPast(true)
+          setEvents([])
+          void refresh(monthOffset, true)
+        }}
       />
     )
   }
@@ -156,7 +197,7 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
           <div className="flex items-center gap-1">
             {!minimized && (
               <button
-                onClick={refresh}
+                onClick={() => refresh()}
                 className="grid place-items-center h-7 w-7 rounded-lg text-content-muted hover:bg-surface-elevated hover:text-content-primary"
                 aria-label={t('events.update')}
               >
@@ -235,7 +276,7 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
         <Sheet open={eventsOpen} onClose={() => setEventsOpen(false)} title={t('events.mine')}>
           <div className="flex items-center justify-between mb-3">
             <button
-              onClick={refresh}
+              onClick={() => refresh()}
               className="flex items-center gap-1.5 text-sm text-content-secondary hover:text-content-primary"
             >
               {loading ? <Spinner size={14} /> : <RefreshCw size={14} />} {t('events.update')}

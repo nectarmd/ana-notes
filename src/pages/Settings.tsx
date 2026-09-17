@@ -26,7 +26,6 @@ import {
   Monitor,
   Smartphone,
   SquarePlus,
-  Activity,
   FolderOpen,
   AlertTriangle,
 } from 'lucide-react'
@@ -355,13 +354,13 @@ export function Settings() {
         <>
           <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.admin')}</p>
           <div className="card divide-y divide-surface-border mb-6">
+            {/* Custos das APIs, log de auditoria e avisos ficam DENTRO do painel (pedido de
+                17/09/2026): aqui so a porta de entrada. */}
             <Row
               icon={<ShieldCheck size={20} className="text-accent" />}
               label={t('settings.adminPanel')}
               onClick={() => navigate('/admin')}
             />
-            <Row icon={<Activity size={20} />} label="Custos das APIs" onClick={() => navigate('/admin/api')} />
-            <Row icon={<ScrollText size={20} />} label="Log de auditoria" onClick={() => navigate('/admin/audit')} />
           </div>
         </>
       )}

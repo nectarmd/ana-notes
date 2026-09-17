@@ -272,6 +272,19 @@ export const supabaseDb: Db = {
     if (error) throw error
   },
 
+  async replyTicket(id, reply, adminId) {
+    const { error } = await client()
+      .from('support_tickets')
+      .update({ reply: reply.trim(), replied_at: new Date().toISOString(), replied_by: adminId, status: 'resolvido' })
+      .eq('id', id)
+    if (error) throw error
+  },
+
+  async setTicketStatus(id, status) {
+    const { error } = await client().from('support_tickets').update({ status }).eq('id', id)
+    if (error) throw error
+  },
+
   async listTickets() {
     const { data, error } = await client()
       .from('support_tickets')
