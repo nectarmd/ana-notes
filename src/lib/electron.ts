@@ -47,8 +47,11 @@ export interface AnaElectronBridge {
    *  este recurso) -- tratados como desatualizados pelo aviso de atualizacao. */
   appVersion?: string
   onRecordHotkey: (cb: () => void) => () => void
-  checkForUpdates: () => void
-  onUpdateStatus: (cb: (payload: AnaUpdateStatus) => void) => () => void
+  /** Copia instalada pela Microsoft Store. Nela quem atualiza e a Loja, entao as tres funcoes
+   *  de atualizacao abaixo NAO existem (o preload nem as expoe). */
+  isStoreBuild?: boolean
+  checkForUpdates?: () => void
+  onUpdateStatus?: (cb: (payload: AnaUpdateStatus) => void) => () => void
   /** Instala agora a atualizacao ja baixada e reabre o app. `undefined` em instaladores antigos
    *  (capability-gated) -- nesse caso o aviso cai no fallback de baixar por link. */
   quitAndInstall?: (notice?: {

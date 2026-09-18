@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { ArrowUpCircle, Loader2, X } from 'lucide-react'
 import { isElectron, type AnaUpdateStatus } from '../lib/electron'
 import { isOlderVersion, WINDOWS_REQUIRED_BUILD } from '../lib/version'
-import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
+import { WINDOWS_INSTALLER_URL } from '../lib/windowsApp'
 import { useToast } from './Toast'
 import { useT } from '../lib/i18n'
 
@@ -80,7 +80,8 @@ export function UpdateBanner() {
     })
   }, [countdown, t])
 
-  if (!isElectron() || dismissed) return null
+  // Copia da Loja: o Windows atualiza sozinho -- mandar a pessoa baixar instalador seria errado.
+  if (!isElectron() || dismissed || window.anaElectron!.isStoreBuild) return null
 
   const installed = window.anaElectron!.appVersion
   const outdated = !installed || isOlderVersion(installed, WINDOWS_REQUIRED_BUILD)
@@ -96,7 +97,7 @@ export function UpdateBanner() {
       toast(t('update.checking'))
     } else {
       // Instalador antigo sem auto-updater: so resta baixar o novo manualmente.
-      window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')
+      window.open(WINDOWS_INSTALLER_URL, '_blank')
     }
   }
 

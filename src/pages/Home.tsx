@@ -276,7 +276,8 @@ export function Home() {
   // de so mostrar um toast fixo "verificando..." que nunca sabia se de fato terminou.
   useEffect(() => {
     if (!supportsUpdateStatus) return
-    return window.anaElectron!.onUpdateStatus((payload) => {
+    // `?.` so pra agradar o TypeScript: supportsUpdateStatus acima ja garantiu que existe.
+    return window.anaElectron!.onUpdateStatus?.((payload) => {
       if (payload.status === 'checking') {
         setUpdateBusy(true)
         setUpdatePercent(null)
@@ -381,7 +382,7 @@ export function Home() {
                   } else {
                     toast('Verificando atualizações...')
                   }
-                  window.anaElectron!.checkForUpdates()
+                  window.anaElectron!.checkForUpdates?.()
                 }}
                 disabled={supportsUpdateStatus && updateBusy}
                 aria-label="Buscar atualizações"

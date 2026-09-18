@@ -123,13 +123,24 @@ app.setAppUserModelId('br.com.tailorexec.tena.desktop')
 log.transports.file.level = 'info'
 autoUpdater.logger = log
 
+/**
+ * Esta copia veio da Microsoft Store (pacote MSIX/AppX)?
+ *
+ * Quem define e o proprio Electron. Importa porque a Loja atualiza o app ELA MESMA: deixar o
+ * electron-updater rodando aqui faria o app baixar o .exe do GitHub e tentar instalar por fora
+ * do conteiner do pacote -- o que a Loja nao permite e a certificacao reprova. Entao, nesta
+ * copia, toda a maquinaria de atualizacao fica parada e o botao some do site (ver preload.cjs).
+ */
+const IS_STORE_BUILD = process.windowsStore === true
+if (IS_STORE_BUILD) log.info('Copia da Microsoft Store: atualizacao fica por conta da Loja.')
+
 // Atualizacao AUTOMATICA e SILENCIOSA (o instalador virou "oneClick", que fecha o app e instala
 // sozinho sem o dialogo bloqueante "nao e possivel fechar"). autoDownload: baixa em segundo plano
 // assim que acha uma versao nova; autoInstallOnAppQuit: aplica o que ja baixou quando o app fechar
 // de verdade (bandeja -> Sair, logoff, desligar). Quem quiser atualizar na hora usa o aviso
 // discreto do site (IPC ana:quit-and-install). Nenhum dialogo nativo trava o fluxo.
-autoUpdater.autoDownload = true
-autoUpdater.autoInstallOnAppQuit = true
+autoUpdater.autoDownload = !IS_STORE_BUILD
+autoUpdater.autoInstallOnAppQuit = !IS_STORE_BUILD
 
 log.info(`ANA iniciando -- versao ${app.getVersion()}, plataforma ${process.platform}`)
 
@@ -317,7 +328,7 @@ if (!gotSingleInstanceLock) {
         { label: 'Abrir ANA', click: () => (mainWindow ? mainWindow.show() : createWindow()) },
         { label: 'Gravar reunião (Ctrl+Shift+G)', click: triggerRecordHotkey },
         { type: 'separator' },
-        { label: 'Buscar atualizações...', click: () => checkForUpdates(true) },
+        ...(IS_STORE_BUILD ? [] : [{ label: 'Buscar atualizações...', click: () => checkForUpdates(true) }]),
         // Atalhos pras pastas tambem AQUI, e nao so em Configuracoes: quando o site nao
         // carrega, a bandeja e o unico lugar que o usuario ainda alcanca.
         { label: 'Abrir a pasta do app...', click: () => shell.openPath(path.dirname(process.execPath)) },
@@ -542,6 +553,7 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
   let checkingUpdate = false
   let lastCheckWasManual = false
   function checkForUpdates(manual) {
+    if (IS_STORE_BUILD) return
     log.info(`checkForUpdates chamado (manual=${manual}, ja em andamento=${checkingUpdate})`)
     if (checkingUpdate) return
     checkingUpdate = true
@@ -596,6 +608,10 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
   // com a ultima versao publicada pra saber se precisa avisar o usuario a atualizar o app.
   ipcMain.on('ana:get-version', (e) => {
     e.returnValue = app.getVersion()
+  })
+
+  ipcMain.on('ana:is-store-build', (e) => {
+    e.returnValue = IS_STORE_BUILD
   })
 
   /**
@@ -800,8 +816,10 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
     // Checagem automatica e silenciosa ao abrir + a cada ~3h. O app vive na bandeja por dias, entao
     // sem o reintervalo ele nunca acharia uma release publicada depois que ja estava aberto. Com
     // autoDownload=true, achar = baixar em segundo plano; instala sozinho ao sair (autoInstallOnAppQuit).
-    setTimeout(() => checkForUpdates(false), 5000)
-    setInterval(() => checkForUpdates(false), 3 * 60 * 60 * 1000)
+    if (!IS_STORE_BUILD) {
+      setTimeout(() => checkForUpdates(false), 5000)
+      setInterval(() => checkForUpdates(false), 3 * 60 * 60 * 1000)
+    }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

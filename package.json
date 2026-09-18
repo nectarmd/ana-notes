@@ -1,7 +1,7 @@
 {
   "name": "tailor-executive-ai-notes",
   "private": true,
-  "version": "0.20.13",
+  "version": "0.20.14",
   "author": "Tailor Executive",
   "type": "module",
   "description": "Tailor Executive AI Notes - IA de anotacoes e transcricoes de reunioes",
@@ -17,7 +17,9 @@
     "predist:win": "node electron/build-icon.mjs && node electron/patch-nsis.mjs",
     "dist:win": "electron-builder --win",
     "prerelease:win": "node electron/build-icon.mjs && node electron/patch-nsis.mjs && node electron/ensure-release.mjs",
-    "release:win": "electron-builder --win --publish always"
+    "release:win": "electron-builder --win --publish always",
+    "store:assets": "node electron/build-appx-assets.mjs",
+    "dist:store": "node electron/build-icon.mjs && node electron/build-appx-assets.mjs && node electron/build-store.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
@@ -109,6 +111,23 @@
       "en-US",
       "es",
       "es-419"
-    ]
+    ],
+    "appx": {
+      "applicationId": "ANAbyTailor",
+      "displayName": "ANA by Tailor",
+      "backgroundColor": "#09090C",
+      "showNameOnTiles": true,
+      "languages": [
+        "pt-BR",
+        "en-US",
+        "es"
+      ],
+      "capabilities": [
+        "internetClient",
+        "microphone"
+      ],
+      "electronUpdaterAware": false,
+      "artifactName": "ANA-by-Tailor-Store-${version}.${ext}"
+    }
   }
 }
