@@ -327,6 +327,17 @@ export function Login() {
       </main>
 
       <footer className="text-center py-6 text-sm text-white/40 safe-bottom shrink-0">
+        {/* Links publicos (abrem sem login): a Microsoft Store pede a URL da politica e o revisor
+            nao tem conta. */}
+        <nav className="flex items-center justify-center gap-3 mb-2 text-xs">
+          <Link to="/privacidade" className="hover:text-accent transition-colors">
+            {t('settings.privacy')}
+          </Link>
+          <span aria-hidden>·</span>
+          <Link to="/termos" className="hover:text-accent transition-colors">
+            {t('settings.terms')}
+          </Link>
+        </nav>
         A N A Technology by{' '}
         <a href="https://tailorexec.com.br" target="_blank" rel="noreferrer" className="hover:text-accent transition-colors">
           Tailorexec.com.br

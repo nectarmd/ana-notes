@@ -4,8 +4,23 @@ import { DocList, DocPage, type DocSectionData } from './DocPage'
 /**
  * Revisada em 17/09/2026 contra o codigo: prazos iguais aos da limpeza automatica
  * (retention-cleanup e cron das migrations 0041/0042), provedores iguais aos das edge functions.
+ *
+ * 22/09/2026, para a Microsoft Store: a pagina passou a abrir sem login, ganhou quem e o
+ * responsavel e o uso do microfone/audio do computador (a Loja pede os dois, porque o pacote
+ * declara a capacidade de microfone). Provedores conferidos contra api_usage dos ultimos 90 dias:
+ * so Anthropic, Groq e AssemblyAI receberam chamadas -- a chave da OpenAI existe, parada.
  */
 const SECTIONS: DocSectionData[] = [
+  {
+    id: 'responsavel',
+    title: 'Quem é responsável',
+    body: (
+      <p>
+        O ANA by Tailor é um aplicativo da Tailor Executive (tailorexec.com.br), de uso restrito aos colaboradores com
+        e-mail @tailorexec.com.br. Esta política vale para o site, o app para Windows e o app para Android.
+      </p>
+    ),
+  },
   {
     id: 'dados',
     title: 'Dados que coletamos',
@@ -19,6 +34,12 @@ const SECTIONS: DocSectionData[] = [
           <>
             <strong className="text-content-primary">Conteúdo que você cria:</strong> áudios, vídeos, documentos, links,
             transcrições, resumos, notas, tarefas, pastas e recados a amigos.
+          </>,
+          <>
+            <strong className="text-content-primary">Microfone e som do computador:</strong> usados só durante uma
+            gravação que você inicia (pelo botão de gravar ou pelo atalho Ctrl+Shift+G no Windows). No app para Windows,
+            a gravação de reunião também capta o som que sai do computador, para registrar as outras pessoas da
+            chamada. Nada é gravado sem você iniciar.
           </>,
           <>
             <strong className="text-content-primary">Dados técnicos:</strong> registros de erro (com navegador e sistema
@@ -49,8 +70,8 @@ const SECTIONS: DocSectionData[] = [
     title: 'Onde ficam armazenados',
     body: (
       <p>
-        No Supabase (banco de dados Postgres e armazenamento privado de arquivos). Os áudios ficam em armazenamento
-        privado, acessível só pela sua conta. No app para Windows, uma cópia de segurança de cada gravação é salva no
+        No Supabase (banco de dados Postgres e armazenamento privado de arquivos); o site é hospedado na Vercel. Os
+        áudios ficam em armazenamento privado, acessível só pela sua conta. No app para Windows, uma cópia de segurança de cada gravação é salva no
         próprio computador antes de transcrever (a pasta aparece em Configurações → App do Windows).
       </p>
     ),
@@ -153,7 +174,7 @@ export function Privacy() {
       title="Política de privacidade"
       subtitle="Quais dados o ANA usa, para quê, onde ficam e por quanto tempo."
       icon={<FileLock2 size={22} />}
-      updated="Última atualização: 17 de setembro de 2026 · uso interno Tailor"
+      updated="Última atualização: 22 de setembro de 2026 · uso interno Tailor"
       sections={SECTIONS}
     />
   )

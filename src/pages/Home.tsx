@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Search,
   SearchX,
@@ -659,6 +659,18 @@ export function Home() {
       {/* Agenda: os proximos compromissos ficam DEPOIS das notas -- quem abre o ANA vem ver as
           notas primeiro, e cada compromisso ja traz gravar e entrar na chamada. */}
       <UpcomingEvents />
+
+      {/* Politica e termos tambem na tela inicial (pedido de 22/09/2026, para a Microsoft Store).
+          As duas paginas abrem com ou sem login. */}
+      <nav className="flex items-center justify-center gap-3 pb-8 text-xs text-content-muted">
+        <Link to="/privacidade" className="hover:text-accent transition-colors">
+          {t('settings.privacy')}
+        </Link>
+        <span aria-hidden>·</span>
+        <Link to="/termos" className="hover:text-accent transition-colors">
+          {t('settings.terms')}
+        </Link>
+      </nav>
 
       {/* FAB da ANA (MOBILE): no desktop a ANA fica no shell, global e com balao. */}
       <button

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth/AuthProvider'
 import { Spinner } from './components/ui'
 import { AppShell } from './layouts/AppShell'
@@ -47,6 +47,23 @@ function Protected({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+/**
+ * Privacidade e Termos precisam abrir SEM login: a Microsoft Store (e qualquer loja) exige a URL
+ * publica da politica, e o revisor nao tem conta. Ate 22/09/2026 essas rotas ficavam dentro do
+ * Protected e redirecionavam para o login. Quem ja esta logado continua vendo a pagina dentro do
+ * app, com o menu lateral; quem nao esta ve a pagina sozinha.
+ */
+function PublicOrShell() {
+  const { profile, loading } = useAuth()
+  if (loading) return <FullscreenLoader />
+  if (profile) return <AppShell />
+  return (
+    <div className="min-h-dvh bg-surface-bg">
+      <Outlet />
+    </div>
+  )
+}
+
 function AdminOnly({ children }: { children: ReactNode }) {
   const { isAdmin, loading } = useAuth()
   if (loading) return <FullscreenLoader />
@@ -88,6 +105,11 @@ export default function App() {
           instalar o app antes mesmo de ter conta/logar. */}
       <Route path="/instalar" element={<InstallApp />} />
 
+      <Route element={<PublicOrShell />}>
+        <Route path="/termos" element={<Terms />} />
+        <Route path="/privacidade" element={<Privacy />} />
+      </Route>
+
       <Route
         element={
           <Protected>
@@ -104,8 +126,6 @@ export default function App() {
         <Route path="/config" element={<Settings />} />
         <Route path="/lixeira" element={<TrashPage />} />
         <Route path="/ajuda" element={<Help />} />
-        <Route path="/termos" element={<Terms />} />
-        <Route path="/privacidade" element={<Privacy />} />
         <Route path="/suporte" element={<Support />} />
         <Route path="/notificacoes" element={<NotificationsPage />} />
         <Route path="/amigos" element={<FriendsPage />} />

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, LifeBuoy, List } from 'lucide-react'
+import { ArrowLeft, LifeBuoy, List, LogIn } from 'lucide-react'
+import { useAuth } from '../auth/AuthProvider'
 
 export interface DocSectionData {
   id: string
@@ -27,6 +28,9 @@ export function DocPage({
   sections: DocSectionData[]
 }) {
   const navigate = useNavigate()
+  // Estas paginas tambem abrem sem login (revisor da Microsoft Store, link publico): ai o voltar
+  // e o atalho do suporte levam ao login em vez de telas que exigem conta.
+  const { profile } = useAuth()
   const [current, setCurrent] = useState(sections[0]?.id ?? '')
 
   // Destaca no indice a secao que esta na tela.
@@ -74,9 +78,9 @@ export function DocPage({
     <div className="px-5 safe-top pb-16 max-w-5xl mx-auto">
       <header className="flex items-start gap-3 mb-6">
         <button
-          onClick={() => navigate('/config')}
+          onClick={() => navigate(profile ? '/config' : '/login')}
           className="grid place-items-center h-10 w-10 rounded-full bg-surface-elevated border border-surface-border shrink-0"
-          aria-label="Voltar"
+          aria-label={profile ? 'Voltar' : 'Ir para o login'}
         >
           <ArrowLeft size={18} />
         </button>
@@ -121,11 +125,21 @@ export function DocPage({
           <div className="card p-5 mt-6 flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="min-w-0 flex-1">
               <p className="font-display font-semibold">Ficou alguma dúvida?</p>
-              <p className="text-sm text-content-muted mt-0.5">Fale com a equipe pelo suporte. A resposta chega no app, no sininho.</p>
+              <p className="text-sm text-content-muted mt-0.5">
+                {profile
+                  ? 'Fale com a equipe pelo suporte. A resposta chega no app, no sininho.'
+                  : 'Quem usa o ANA fala com a equipe pelo suporte, dentro do app.'}
+              </p>
             </div>
-            <button onClick={() => navigate('/suporte')} className="btn-primary h-10 px-4 text-sm shrink-0">
-              <LifeBuoy size={16} /> Falar com o suporte
-            </button>
+            {profile ? (
+              <button onClick={() => navigate('/suporte')} className="btn-primary h-10 px-4 text-sm shrink-0">
+                <LifeBuoy size={16} /> Falar com o suporte
+              </button>
+            ) : (
+              <button onClick={() => navigate('/login')} className="btn-primary h-10 px-4 text-sm shrink-0">
+                <LogIn size={16} /> Entrar no ANA
+              </button>
+            )}
           </div>
         </div>
       </div>
