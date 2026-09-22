@@ -123,7 +123,6 @@ export function Login() {
         {/* A tela e sempre escura, independente do tema do usuario: arte branca fixa. */}
         <Logo part="ana" heightClass="h-9 md:h-11" variant="dark" />
         <div className="flex items-center gap-3 md:gap-5">
-          <Logo part="tailor" heightClass="h-5 md:h-6" variant="dark" />
           <div className="relative">
             <button
               onClick={() => setDownloadOpen((v) => !v)}
@@ -329,7 +328,7 @@ export function Login() {
       <footer className="text-center py-6 text-sm text-white/40 safe-bottom shrink-0">
         {/* Links publicos (abrem sem login): a Microsoft Store pede a URL da politica e o revisor
             nao tem conta. */}
-        <nav className="flex items-center justify-center gap-3 mb-2 text-xs">
+        <nav className="flex items-center justify-center gap-3 text-xs">
           <Link to="/privacidade" className="hover:text-accent transition-colors">
             {t('settings.privacy')}
           </Link>
@@ -338,10 +337,6 @@ export function Login() {
             {t('settings.terms')}
           </Link>
         </nav>
-        A N A Technology by{' '}
-        <a href="https://tailorexec.com.br" target="_blank" rel="noreferrer" className="hover:text-accent transition-colors">
-          Tailorexec.com.br
-        </a>
       </footer>
     </div>
   )

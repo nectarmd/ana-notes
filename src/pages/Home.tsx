@@ -344,18 +344,14 @@ export function Home() {
   return (
     <div className="px-5 safe-top">
       <header className="mb-4">
-        {/* Mobile: logo ANA + "AI NOTES ADVISOR" embaixo (a esquerda); "by [Tailor]" no canto superior direito */}
+        {/* Mobile: logo ANA + "AI NOTES ADVISOR" embaixo. (Ate 22/09/2026 havia a logo da Tailor no
+            canto direito; o app passou a usar so a marca ANA.) */}
         <div className="md:hidden flex items-start justify-between gap-3 mb-3">
           <div>
             <Logo part="anaonly" heightClass="h-[19px]" />
             <span className="block text-brand-400 text-[9px] font-semibold uppercase tracking-[0.22em] leading-none mt-1">
               AI NOTES ADVISOR
             </span>
-          </div>
-          {/* Caixa de 19px = altura da logo ANA. items-end alinha as duas pela BASE
-              (a Tailor tem 17px, um pouco menor). */}
-          <div className="flex items-end h-[19px] shrink-0">
-            <Logo part="tailor" heightClass="h-[17px]" />
           </div>
         </div>
         <div className="flex items-center justify-between gap-3">

@@ -238,12 +238,6 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
 
       <SidebarFavorites />
 
-      {/* "Powered by" a esquerda, logo Tailor colada na direita, alinhadas pela base. */}
-      <div className="px-4 pb-3 flex items-end justify-between gap-2">
-        <span className="text-[11px] text-content-muted leading-none pb-0.5">Powered by</span>
-        <Logo part="tailor" heightClass="h-[18px]" className="opacity-80 shrink-0" />
-      </div>
-
       <div className="p-3 border-t border-surface-border flex items-center gap-2">
         {/* A foto leva direto para "Editar perfil"; a engrenagem ao lado abre o Config. */}
         <button

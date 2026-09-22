@@ -16,7 +16,7 @@ const SECTIONS: DocSectionData[] = [
     title: 'Quem é responsável',
     body: (
       <p>
-        O ANA by Tailor é um aplicativo da Tailor Executive (tailorexec.com.br), de uso restrito aos colaboradores com
+        O ANA é um aplicativo da Tailor Executive (tailorexec.com.br), de uso restrito aos colaboradores com
         e-mail @tailorexec.com.br. Esta política vale para o site, o app para Windows e o app para Android.
       </p>
     ),

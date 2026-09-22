@@ -46,7 +46,7 @@ const ICONS: Record<string, ReactNode> = {
 const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
   pt: {
     title: 'Central de ajuda',
-    intro: 'Respostas rápidas sobre como usar o ANA by Tailor.',
+    intro: 'Respostas rápidas sobre como usar o ANA.',
     search: 'Buscar na ajuda (ex.: pasta, áudio, Windows)',
     noResults: 'Nada encontrado',
     noResultsSub: 'Tente outra palavra ou pergunte direto para a ANA.',
@@ -165,7 +165,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
   },
   en: {
     title: 'Help center',
-    intro: 'Quick answers on how to use ANA by Tailor.',
+    intro: 'Quick answers on how to use ANA.',
     search: 'Search help (e.g. folder, audio, Windows)',
     noResults: 'Nothing found',
     noResultsSub: 'Try another word or ask ANA directly.',
@@ -284,7 +284,7 @@ const FAQ: Record<'pt' | 'en' | 'es', Faq> = {
   },
   es: {
     title: 'Centro de ayuda',
-    intro: 'Respuestas rápidas sobre cómo usar ANA by Tailor.',
+    intro: 'Respuestas rápidas sobre cómo usar ANA.',
     search: 'Buscar en la ayuda (ej.: carpeta, audio, Windows)',
     noResults: 'No se encontró nada',
     noResultsSub: 'Prueba otra palabra o pregúntale directamente a ANA.',

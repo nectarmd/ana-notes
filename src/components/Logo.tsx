@@ -1,13 +1,14 @@
 import { useTheme } from '../theme/ThemeProvider'
 
-type LogoPart = 'full' | 'ana' | 'anaonly' | 'tailor'
+type LogoPart = 'ana' | 'anaonly'
 
-/** Logo oficial ANA by Tailor (troca cor conforme o tema). Pode exibir a marca
- *  completa ou apenas as partes "ANA" ou "by Tailor" (mesma arte, so recortada). */
+/** Logo do ANA (troca cor conforme o tema): 'ana' traz o "AI NOTES ADVISOR" embaixo, 'anaonly'
+ *  e so a palavra ANA. Desde 22/09/2026 o app nao usa mais a marca Tailor -- as artes "completa"
+ *  (ANA by Tailor) e "tailor" foram removidas. */
 export function Logo({
   className = '',
   size = 'md',
-  part = 'full',
+  part = 'ana',
   heightClass,
   variant = 'auto',
 }: {
@@ -26,14 +27,7 @@ export function Logo({
   const { theme } = useTheme()
   const suffix = variant === 'auto' ? (theme === 'dark' ? 'dark' : 'light') : variant
   // *-light = texto preto (tema claro); *-dark = texto branco (tema escuro).
-  const base =
-    part === 'ana'
-      ? 'logo-ana'
-      : part === 'anaonly'
-        ? 'logo-anaonly'
-        : part === 'tailor'
-          ? 'logo-tailor'
-          : 'logo'
+  const base = part === 'anaonly' ? 'logo-anaonly' : 'logo-ana'
   const src = `/${base}-${suffix}.png`
 
   const preset =
@@ -48,7 +42,7 @@ export function Logo({
     <div className={`inline-flex items-center ${className}`}>
       <img
         src={src}
-        alt={part === 'tailor' ? 'by Tailor' : 'ANA by Tailor'}
+        alt="ANA"
         className={`w-auto object-contain select-none ${cls}`}
         draggable={false}
       />

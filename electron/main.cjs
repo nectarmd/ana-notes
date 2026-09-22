@@ -326,7 +326,7 @@ if (!gotSingleInstanceLock) {
     let icon = nativeImage.createFromPath(ICON_PATH)
     if (!icon.isEmpty()) icon = icon.resize({ width: 16, height: 16 })
     tray = new Tray(icon)
-    tray.setToolTip('ANA by Tailor')
+    tray.setToolTip('ANA')
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: 'Abrir ANA', click: () => (mainWindow ? mainWindow.show() : createWindow()) },
@@ -391,7 +391,7 @@ $started = Get-Date
 $appName = $env:ANA_EXE_NAME
 $old = @(Get-Process -Name $appName | ForEach-Object { $_.Id })
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'ANA by Tailor'
+$form.Text = 'ANA'
 $form.FormBorderStyle = 'FixedDialog'
 $form.MaximizeBox = $false
 $form.StartPosition = 'CenterScreen'

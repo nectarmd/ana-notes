@@ -10,7 +10,7 @@ import { version } from '../../package.json'
  * ("aplicativo instalado v0.20.2" x "site carregado v0.20.3") e isso confundia.
  */
 export const APP_VERSION = `v${version}`
-export const APP_NAME = 'ANA by Tailor'
+export const APP_NAME = 'ANA'
 
 /**
  * Menor instalador do Windows de que o site precisa (recursos nativos em electron/). NAO aparece

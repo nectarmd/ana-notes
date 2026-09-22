@@ -962,7 +962,7 @@ Foque em: tom, perguntas feitas e sugeridas, ritmo/andamento, pontos fortes, mel
             : 'So consigo ajudar com duvidas sobre o uso do aplicativo.'
       const text = await ask(
         HAIKU,
-        `Voce e a ANA (ANA by Tailor), assistente de ajuda do aplicativo (notas, transcricoes e analise de reunioes). O aplicativo se chama ANA. Nunca use o nome "TENA". Responda SOMENTE sobre como usar o aplicativo e suas funcoes, com base na BASE DE AJUDA fornecida. Se a pergunta NAO for sobre o uso do aplicativo, responda apenas: "${refusal}". Nao invente funcoes inexistentes. Responda em ${langName}, de forma curta e direta.` +
+        `Voce e a ANA, assistente de ajuda do aplicativo (notas, transcricoes e analise de reunioes). O aplicativo se chama ANA. Nunca use o nome "TENA". Responda SOMENTE sobre como usar o aplicativo e suas funcoes, com base na BASE DE AJUDA fornecida. Se a pergunta NAO for sobre o uso do aplicativo, responda apenas: "${refusal}". Nao invente funcoes inexistentes. Responda em ${langName}, de forma curta e direta.` +
           GUARD,
         [
           {

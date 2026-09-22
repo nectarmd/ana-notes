@@ -16,8 +16,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.png', 'favicon-48.png', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Tailor Executive AI Notes',
-        short_name: 'Tailor Notes',
+        name: 'ANA - AI Notes Advisor',
+        short_name: 'ANA',
         description: 'IA de anotacoes, transcricoes e analise de reunioes',
         // Claro e o tema padrao do app (ThemeProvider.tsx): a splash screen do PWA instalado
         // usa ESTA cor fixa (nao a dinamica do <meta theme-color>, que so existe depois que o

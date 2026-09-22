@@ -79,7 +79,6 @@ export function About() {
       </div>
 
       <div className="flex flex-col items-center gap-2 text-content-muted">
-        <Logo part="tailor" heightClass="h-[18px]" className="opacity-80" />
         <p className="text-xs">{t('about.copyright').replace('{y}', String(new Date().getFullYear()))}</p>
       </div>
     </div>

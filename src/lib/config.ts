@@ -34,8 +34,8 @@ export const config = {
   ).trim(),
 
   app: {
-    name: 'Tailor Executive AI Notes',
-    shortName: 'Tailor Notes',
+    name: 'ANA - AI Notes Advisor',
+    shortName: 'ANA',
   },
 } as const
 

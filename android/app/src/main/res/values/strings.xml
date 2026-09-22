@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">ANA by Tailor</string>
-    <string name="title_activity_main">ANA by Tailor</string>
+    <string name="app_name">ANA</string>
+    <string name="title_activity_main">ANA</string>
     <string name="package_name">br.com.tailorexec.tena</string>
     <string name="custom_url_scheme">br.com.tailorexec.tena</string>
 </resources>
