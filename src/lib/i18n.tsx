@@ -247,7 +247,7 @@ const pt: Dict = {
   'about.chatTitle': 'Chat entre amigos',
   'about.chatBody': 'As mensagens e cutucadas são apagadas automaticamente após {n} dias.',
   'about.legal': 'Legal e suporte',
-  'about.copyright': '© {y} Tailor Recrutamento Executivo',
+  'about.copyright': '© {y} Nectar MD Consulting',
 
   'profile.phone': 'Telefone',
   'profile.phoneHint': 'Usado só para contato interno.',
@@ -860,7 +860,7 @@ const en: Dict = {
   'about.chatTitle': 'Friends chat',
   'about.chatBody': 'Messages and pokes are automatically deleted after {n} days.',
   'about.legal': 'Legal and support',
-  'about.copyright': '© {y} Tailor Recrutamento Executivo',
+  'about.copyright': '© {y} Nectar MD Consulting',
 
   'profile.phone': 'Phone',
   'profile.phoneHint': 'Used for internal contact only.',
@@ -1472,7 +1472,7 @@ const es: Dict = {
   'about.chatTitle': 'Chat entre amigos',
   'about.chatBody': 'Los mensajes y toques se borran automáticamente después de {n} días.',
   'about.legal': 'Legal y soporte',
-  'about.copyright': '© {y} Tailor Recrutamento Executivo',
+  'about.copyright': '© {y} Nectar MD Consulting',
 
   'profile.phone': 'Teléfono',
   'profile.phoneHint': 'Solo para contacto interno.',

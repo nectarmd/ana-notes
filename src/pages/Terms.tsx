@@ -7,7 +7,7 @@ const SECTIONS: DocSectionData[] = [
     title: 'Aceitação',
     body: (
       <p>
-        Ao usar o ANA (“aplicativo”), você concorda com estes Termos. O acesso é restrito a colaboradores
+        Ao usar o ANA (“aplicativo”), fornecido pela Nectar MD Consulting, você concorda com estes Termos. O acesso é restrito a colaboradores
         com e-mail @tailorexec.com.br.
       </p>
     ),
@@ -146,7 +146,7 @@ export function Terms() {
       title="Termos de serviço"
       subtitle="As regras de uso do ANA, em linguagem direta."
       icon={<ScrollText size={22} />}
-      updated="Última atualização: 22 de setembro de 2026 · uso interno Tailor"
+      updated="Última atualização: 22 de setembro de 2026"
       sections={SECTIONS}
     />
   )

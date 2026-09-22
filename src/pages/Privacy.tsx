@@ -5,6 +5,8 @@ import { DocList, DocPage, type DocSectionData } from './DocPage'
  * Revisada em 17/09/2026 contra o codigo: prazos iguais aos da limpeza automatica
  * (retention-cleanup e cron das migrations 0041/0042), provedores iguais aos das edge functions.
  *
+ * 22/09/2026: responsavel = Nectar MD Consulting, a mesma conta que publica na Microsoft Store.
+ *
  * 22/09/2026, para a Microsoft Store: a pagina passou a abrir sem login, ganhou quem e o
  * responsavel e o uso do microfone/audio do computador (a Loja pede os dois, porque o pacote
  * declara a capacidade de microfone). Provedores conferidos contra api_usage dos ultimos 90 dias:
@@ -16,8 +18,9 @@ const SECTIONS: DocSectionData[] = [
     title: 'Quem é responsável',
     body: (
       <p>
-        O ANA é um aplicativo da Tailor Executive (tailorexec.com.br), de uso restrito aos colaboradores com
-        e-mail @tailorexec.com.br. Esta política vale para o site, o app para Windows e o app para Android.
+        O ANA é um aplicativo da Nectar MD Consulting, responsável pelo tratamento dos dados descritos nesta
+        política. O acesso é restrito a contas com e-mail @tailorexec.com.br. Esta política vale para o site, o app
+        para Windows e o app para Android.
       </p>
     ),
   },
@@ -174,7 +177,7 @@ export function Privacy() {
       title="Política de privacidade"
       subtitle="Quais dados o ANA usa, para quê, onde ficam e por quanto tempo."
       icon={<FileLock2 size={22} />}
-      updated="Última atualização: 22 de setembro de 2026 · uso interno Tailor"
+      updated="Última atualização: 22 de setembro de 2026"
       sections={SECTIONS}
     />
   )
