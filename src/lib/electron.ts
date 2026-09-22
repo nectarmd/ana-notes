@@ -39,6 +39,8 @@ export interface AnaPaths {
   logDir: string
   /** Outras pastas do PC que ainda tem um "ANA by Tailor.exe" -- instalacoes sobrando. */
   otherCopies: string[]
+  /** Esta copia e a da Microsoft Store. `undefined` em instaladores anteriores a 1.0.3. */
+  isStoreBuild?: boolean
 }
 
 export interface AnaElectronBridge {

@@ -119,20 +119,24 @@ log.initialize()
 // existe justamente para cobrir o intervalo em que o app esta fechado instalando (~66s medidos
 // na atualizacao 0.18.33 -> 0.18.35). Precisa bater com o appId do electron-builder e ser
 // chamado antes de qualquer janela ou notificacao.
-app.setAppUserModelId('br.com.tailorexec.tena.desktop')
-log.transports.file.level = 'info'
-autoUpdater.logger = log
-
 /**
  * Esta copia veio da Microsoft Store (pacote MSIX/AppX)?
  *
- * Quem define e o proprio Electron. Importa porque a Loja atualiza o app ELA MESMA: deixar o
- * electron-updater rodando aqui faria o app baixar o .exe do GitHub e tentar instalar por fora
- * do conteiner do pacote -- o que a Loja nao permite e a certificacao reprova. Entao, nesta
- * copia, toda a maquinaria de atualizacao fica parada e o botao some do site (ver preload.cjs).
+ * Quem define e o proprio Electron. Importa porque dentro do pacote varias coisas do instalador
+ * antigo (NSIS) nao valem:
+ *  - a Loja atualiza o app ELA MESMA: o electron-updater baixaria o .exe do GitHub e tentaria
+ *    instalar por fora do conteiner, o que a certificacao reprova (ver preload.cjs);
+ *  - a identidade do app no Windows (AUMID) vem do pacote -- sobrescrever quebra o agrupamento na
+ *    barra de tarefas e as notificacoes;
+ *  - a checagem de "copia fora do lugar" compara com a pasta do instalador antigo, e o pacote
+ *    sempre mora em outra (WindowsApps): o app se declararia copia antiga e mandaria a pessoa de
+ *    volta para o instalador velho.
  */
 const IS_STORE_BUILD = process.windowsStore === true
-if (IS_STORE_BUILD) log.info('Copia da Microsoft Store: atualizacao fica por conta da Loja.')
+if (!IS_STORE_BUILD) app.setAppUserModelId('br.com.tailorexec.tena.desktop')
+log.transports.file.level = 'info'
+autoUpdater.logger = log
+if (IS_STORE_BUILD) log.info('Copia da Microsoft Store: atualizacao e identidade ficam por conta do pacote.')
 
 // Atualizacao AUTOMATICA e SILENCIOSA (o instalador virou "oneClick", que fecha o app e instala
 // sozinho sem o dialogo bloqueante "nao e possivel fechar"). autoDownload: baixa em segundo plano
@@ -331,7 +335,9 @@ if (!gotSingleInstanceLock) {
         ...(IS_STORE_BUILD ? [] : [{ label: 'Buscar atualizações...', click: () => checkForUpdates(true) }]),
         // Atalhos pras pastas tambem AQUI, e nao so em Configuracoes: quando o site nao
         // carrega, a bandeja e o unico lugar que o usuario ainda alcanca.
-        { label: 'Abrir a pasta do app...', click: () => shell.openPath(path.dirname(process.execPath)) },
+        ...(IS_STORE_BUILD
+          ? []
+          : [{ label: 'Abrir a pasta do app...', click: () => shell.openPath(path.dirname(process.execPath)) }]),
         { label: 'Abrir a pasta das gravacoes salvas...', click: () => shell.openPath(recordingsBackupDir()) },
         { label: 'Abrir pasta de logs...', click: () => shell.showItemInFolder(log.transports.file.getFile().path) },
         { type: 'separator' },
@@ -640,8 +646,9 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
       appUrl: APP_URL,
       exePath,
       installDir,
-      registeredInstallDir: registeredInstallDir || null,
-      isStaleCopy: !!registeredInstallDir && !samePath(installDir, registeredInstallDir),
+      registeredInstallDir: IS_STORE_BUILD ? null : registeredInstallDir || null,
+      isStaleCopy: !IS_STORE_BUILD && !!registeredInstallDir && !samePath(installDir, registeredInstallDir),
+      isStoreBuild: IS_STORE_BUILD,
       userDataDir: app.getPath('userData'),
       recordingsBackupDir: recordingsBackupDir(),
       logFile,
@@ -721,6 +728,10 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
    * Devolve true se decidimos sair (quem chama nao deve seguir criando janela/bandeja).
    */
   async function guardAgainstStaleCopy() {
+    // O pacote da Loja sempre roda de WindowsApps, nunca da pasta que o instalador antigo
+    // registrou: sem isto, TODO usuario que ja tinha o ANA veria "voce abriu uma copia antiga"
+    // ao abrir a versao da Loja, e o botao padrao fecharia a Loja e abriria o instalador velho.
+    if (IS_STORE_BUILD) return false
     const registered = await readRegValue(INSTALL_REGISTRY_KEY, 'InstallLocation')
     if (!registered) return false
     const here = path.dirname(process.execPath)

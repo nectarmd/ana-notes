@@ -195,7 +195,9 @@ function WindowsAppInfo() {
             <p className="flex items-center gap-2 font-medium">
               <AlertTriangle size={16} className="shrink-0" /> {t('winapp.duplicateTitle')}
             </p>
-            <p className="mt-1">{t('winapp.duplicateBody')}</p>
+            {/* Na copia da Loja, a "outra copia" e o instalador antigo: o conselho e desinstala-lo,
+                nao "instalar a versao nova" (o pacote da Loja nao remove o instalador antigo). */}
+            <p className="mt-1">{t(paths.isStoreBuild ? 'winapp.duplicateStoreBody' : 'winapp.duplicateBody')}</p>
             {paths.otherCopies.map((dir) => (
               <p key={dir} className="mt-1 font-mono text-xs break-all opacity-80">
                 {dir}

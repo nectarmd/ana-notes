@@ -76,6 +76,8 @@ const pt: Dict = {
   'winapp.logs': 'Registro de erros (log)',
   'winapp.open': 'Abrir',
   'winapp.duplicateTitle': 'Há mais de uma cópia do ANA neste computador.',
+  'winapp.duplicateStoreBody':
+    'Você está usando o ANA da Microsoft Store. A outra cópia é o instalador antigo: abra-o uma última vez para conferir se não ficou gravação pendente e, depois, desinstale "ANA by Tailor" em Configurações do Windows → Aplicativos.',
   'winapp.duplicateBody':
     'Cópias antigas guardam login e gravações em lugares separados — é por isso que aparecem gravações pendentes diferentes na mesma conta. Instale a versão mais nova: o instalador remove as antigas sozinho.',
   'winapp.staleTitle': 'Esta não é a cópia instalada do ANA.',
@@ -687,6 +689,8 @@ const en: Dict = {
   'winapp.logs': 'Error log',
   'winapp.open': 'Open',
   'winapp.duplicateTitle': 'There is more than one copy of ANA on this computer.',
+  'winapp.duplicateStoreBody':
+    'You are using ANA from the Microsoft Store. The other copy is the old installer: open it one last time to check that no recording is still pending, then uninstall "ANA by Tailor" in Windows Settings → Apps.',
   'winapp.duplicateBody':
     'Old copies keep login and recordings in separate places — that is why different pending recordings show up on the same account. Install the newest version: the installer removes the old ones by itself.',
   'winapp.staleTitle': 'This is not the installed copy of ANA.',
@@ -1297,6 +1301,8 @@ const es: Dict = {
   'winapp.logs': 'Registro de errores (log)',
   'winapp.open': 'Abrir',
   'winapp.duplicateTitle': 'Hay más de una copia de ANA en esta computadora.',
+  'winapp.duplicateStoreBody':
+    'Estás usando ANA de Microsoft Store. La otra copia es el instalador antiguo: ábrelo una última vez para comprobar que no quedó ninguna grabación pendiente y luego desinstala "ANA by Tailor" en Configuración de Windows → Aplicaciones.',
   'winapp.duplicateBody':
     'Las copias antiguas guardan el inicio de sesión y las grabaciones en lugares separados — por eso aparecen grabaciones pendientes distintas en la misma cuenta. Instalá la versión más nueva: el instalador quita las antiguas solo.',
   'winapp.staleTitle': 'Esta no es la copia instalada de ANA.',
