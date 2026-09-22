@@ -1,7 +1,7 @@
 {
   "name": "tailor-executive-ai-notes",
   "private": true,
-  "version": "0.20.15",
+  "version": "1.0.0",
   "author": "Tailor Executive",
   "type": "module",
   "description": "Tailor Executive AI Notes - IA de anotacoes e transcricoes de reunioes",
@@ -113,8 +113,11 @@
       "es-419"
     ],
     "appx": {
+      "identityName": "NectarMDConsulting.ANANotes",
+      "publisher": "CN=32662896-22C2-4D75-9FB9-21AB229F56D3",
+      "publisherDisplayName": "Nectar MD Consulting",
       "applicationId": "ANAbyTailor",
-      "displayName": "ANA by Tailor",
+      "displayName": "ANA Notes",
       "backgroundColor": "#09090C",
       "showNameOnTiles": true,
       "languages": [
@@ -127,7 +130,7 @@
         "microphone"
       ],
       "electronUpdaterAware": false,
-      "artifactName": "ANA-by-Tailor-Store-${version}.${ext}"
+      "artifactName": "ANA-Notes-Store-${version}.${ext}"
     }
   }
 }
