@@ -1,5 +1,29 @@
-import { format, formatDistanceToNow } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
+import { format, formatDistanceToNow, type Locale } from 'date-fns'
+import { enUS, es, ptBR } from 'date-fns/locale'
+import { getLang, type AppLang } from './lang'
+
+/**
+ * Datas no idioma que a pessoa escolheu. Ate 22/09/2026 tudo aqui saia em portugues fixo, e o app
+ * em ingles mostrava "22 de set. de 2026" e "ha cerca de 10 horas" -- apareceu nas capturas da
+ * ficha em ingles da Microsoft Store.
+ *
+ * O idioma e lido a cada chamada (e so um localStorage): quando a pessoa troca de idioma, o
+ * provedor de i18n re-renderiza as telas e as datas acompanham.
+ */
+const FORMATS: Record<AppLang, { locale: Locale; date: string; dateTime: string; time: string }> = {
+  pt: { locale: ptBR, date: "d 'de' MMM. 'de' yyyy", dateTime: "d 'de' MMM. yyyy, HH:mm", time: 'HH:mm' },
+  en: { locale: enUS, date: 'MMM d, yyyy', dateTime: 'MMM d, yyyy, h:mm a', time: 'h:mm a' },
+  es: { locale: es, date: "d 'de' MMM 'de' yyyy", dateTime: "d 'de' MMM yyyy, HH:mm", time: 'HH:mm' },
+}
+
+function fmt(): (typeof FORMATS)[AppLang] {
+  try {
+    return FORMATS[getLang()] ?? FORMATS.pt
+  } catch {
+    // localStorage bloqueado (janela anonima restrita): cai no portugues, como era antes.
+    return FORMATS.pt
+  }
+}
 
 /**
  * Datas 'YYYY-MM-DD' sem hora (como as de `<input type="date">`, usadas no prazo das
@@ -12,20 +36,23 @@ function toLocalDate(iso: string): Date {
 }
 
 export function fmtDate(iso: string): string {
-  return format(toLocalDate(iso), "d 'de' MMM. 'de' yyyy", { locale: ptBR })
+  const f = fmt()
+  return format(toLocalDate(iso), f.date, { locale: f.locale })
 }
 
 export function fmtDateTime(iso: string): string {
-  return format(new Date(iso), "d 'de' MMM. yyyy, HH:mm", { locale: ptBR })
+  const f = fmt()
+  return format(new Date(iso), f.dateTime, { locale: f.locale })
 }
 
 export function fmtTime(iso: string): string {
-  return format(new Date(iso), 'HH:mm', { locale: ptBR })
+  const f = fmt()
+  return format(new Date(iso), f.time, { locale: f.locale })
 }
 
 export function fmtRelative(iso: string | null): string {
   if (!iso) return '-'
-  return formatDistanceToNow(new Date(iso), { locale: ptBR, addSuffix: true })
+  return formatDistanceToNow(new Date(iso), { locale: fmt().locale, addSuffix: true })
 }
 
 export function fmtDuration(seconds: number): string {

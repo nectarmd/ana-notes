@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { CalEvent } from '../lib/googleCalendar'
 import { useI18n } from '../lib/i18n'
+import { fmtTime } from '../lib/format'
 import { Spinner } from './ui'
 
 const LOCALE: Record<string, string> = { pt: 'pt-BR', en: 'en-US', es: 'es-ES' }
@@ -101,7 +102,11 @@ export function AgendaView({
     const d = new Date(month.getFullYear(), month.getMonth() + (offset - monthOffset), 1)
     return cap(d.toLocaleDateString(locale, { month: 'long' }))
   }
-  const time = (iso: string) => toDate(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+  // Mesmo formato de hora do resto do app (format.ts): 24 h em portugues/espanhol, "9:30 AM" em
+  // ingles. Antes saia "01:33 AM", com o zero na frente que o ingles nao usa.
+  const time = (iso: string) => fmtTime(iso)
+  // "10:00 AM" nao cabe na coluna de 3,5rem feita para "10:00" -- quebrava em duas linhas.
+  const timeCol = lang === 'en' ? 'w-[4.5rem]' : 'w-14'
 
   function dayLabel(d: Date) {
     const full = d.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })
@@ -266,7 +271,7 @@ export function AgendaView({
                           past ? 'opacity-60' : ''
                         }`}
                       >
-                        <div className="w-14 shrink-0 text-right">
+                        <div className={`${timeCol} shrink-0 text-right whitespace-nowrap`}>
                           {e.allDay ? (
                             <span className="text-xs font-medium text-content-muted">{t('events.allDay')}</span>
                           ) : (
