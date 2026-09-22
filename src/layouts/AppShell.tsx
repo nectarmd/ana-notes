@@ -88,8 +88,10 @@ function SidebarLink({ item, label, tag }: { item: Item; label: string; tag?: st
         }`
       }
     >
-      {item.icon}
-      <span className="flex-1">{label}</span>
+      {/* shrink-0: uma etiqueta larga demais (era "COMING SOON"/"PROXIMAMENTE") espremia o icone ate
+          sumir. As etiquetas agora sao curtas (SOON, PRONTO, EM BREVE) e cabem ao lado do nome. */}
+      <span className="shrink-0 grid place-items-center">{item.icon}</span>
+      <span className="flex-1 min-w-0">{label}</span>
       {tag && <NavTag variant={item.tagVariant ?? 'muted'}>{tag}</NavTag>}
     </NavLink>
   )

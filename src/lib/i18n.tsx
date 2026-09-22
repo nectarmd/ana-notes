@@ -619,7 +619,7 @@ const pt: Dict = {
 
 const en: Dict = {
   'nav.notes': 'Notes',
-  'nav.soon': 'Coming soon',
+  'nav.soon': 'Soon',
   'nav.agenda': 'Agenda',
   'nav.admin': 'Admin',
   'nav.config': 'Settings',
@@ -1229,7 +1229,7 @@ const en: Dict = {
 
 const es: Dict = {
   'nav.notes': 'Notas',
-  'nav.soon': 'Próximamente',
+  'nav.soon': 'Pronto',
   'nav.agenda': 'Agenda',
   'nav.admin': 'Admin',
   'nav.config': 'Ajustes',
