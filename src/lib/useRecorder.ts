@@ -123,6 +123,10 @@ export function useRecorder() {
   const [micLost, setMicLost] = useState(false)
 
   const mediaRef = useRef<MediaRecorder | null>(null)
+  /** Um start() de reuniao fica ATRAS da janela de escolha do Windows por segundos, e o botao
+   *  continua clicavel. Sem esta trava, o segundo clique zerava a lista de pedacos (perdendo o
+   *  cabecalho do arquivo) e deixava o primeiro gravador gravando para sempre. */
+  const startingRef = useRef(false)
   const chunksRef = useRef<Blob[]>([])
   const micStreamRef = useRef<MediaStream | null>(null)
   const displayStreamRef = useRef<MediaStream | null>(null)
@@ -440,6 +444,11 @@ export function useRecorder() {
 
   const start = useCallback(
     async (opts?: StartOptions) => {
+      // Ja tem uma captura comecando ou rodando: ignora em silencio (o segundo clique do usuario
+      // impaciente nao pode criar um segundo gravador).
+      if (startingRef.current) return
+      if (mediaRef.current && mediaRef.current.state !== 'inactive') return
+      startingRef.current = true
       setError(null)
       setEnded(false)
       setSystemAudioMissing(false)
@@ -552,6 +561,15 @@ export function useRecorder() {
         })
         chunksRef.current = []
         recorder.ondataavailable = (e) => {
+          if (mediaRef.current && mediaRef.current !== recorder) {
+            // Gravador de uma tentativa anterior que ficou vivo: descarta e encerra de vez.
+            try {
+              recorder.stop()
+            } catch {
+              /* ja estava morrendo */
+            }
+            return
+          }
           if (e.data.size > 0) {
             bytesRef.current += e.data.size
             lastDataAtRef.current = Date.now()
@@ -584,6 +602,7 @@ export function useRecorder() {
         lastDataAtRef.current = Date.now()
         recorder.start(1000)
 
+        startingRef.current = false
         elapsedBeforePauseRef.current = 0
         setSeconds(0)
         setState('recording')
@@ -592,6 +611,7 @@ export function useRecorder() {
         // segundo plano e faz o sistema tirar o microfone dele.
         void acquireWakeLock()
       } catch (err) {
+        startingRef.current = false
         const name = (err as DOMException)?.name
         if (name === 'NotAllowedError') {
           setError('Permissão negada. Autorize o microfone e o compartilhamento de áudio.')
@@ -626,6 +646,15 @@ export function useRecorder() {
   }, [startTimer])
 
   const cleanup = useCallback(() => {
+    startingRef.current = false
+    // Sem isto, um gravador que nunca recebeu stop() segue com o microfone aberto.
+    if (mediaRef.current && mediaRef.current.state !== 'inactive') {
+      try {
+        mediaRef.current.stop()
+      } catch {
+        /* ja parado */
+      }
+    }
     if (timerRef.current) clearInterval(timerRef.current)
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
     if (visibleTimerRef.current) window.clearTimeout(visibleTimerRef.current)

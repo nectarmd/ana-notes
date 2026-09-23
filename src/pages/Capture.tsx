@@ -650,6 +650,16 @@ export function Capture() {
     } catch (err) {
       // Uma tentativa cancelada que falha tarde nao deve reescrever a tela do usuario.
       if (superseded()) return
+      // A nota existe e tem transcricao, mas ficou sem resumo. Deixa-la em "processando" a
+      // esconde para sempre atras do spinner: a Larissa ficou com tres notas assim desde
+      // 16/09/2026 (dia em que os creditos da Anthropic acabaram). Marcada como pronta, ela abre,
+      // mostra a transcricao e oferece o botao de gerar o resumo -- e o "Tentar novamente" aqui
+      // continua valendo.
+      if (createdNoteRef.current) {
+        void db.updateNote(createdNoteRef.current.id, { status: 'ready' }).catch((e) => {
+          logSilentError('client:Capture.destravarNota', e)
+        })
+      }
       // Com a nota ja criada, o transcript esta salvo e o "tentar novamente" so refaz a IA --
       // dizer isso evita o usuario achar que perdeu a gravacao e regravar a reuniao.
       setError(
@@ -673,6 +683,22 @@ export function Capture() {
     finalizeAttemptRef.current++ // invalida a tentativa em andamento
     setProcessing(false)
     setError('Processamento interrompido. Sua gravação foi salva — toque em "Tentar novamente".')
+  }
+
+  /** Salva no computador o audio guardado no navegador. Serve para a gravacao que nenhum
+   *  provedor consegue ler (arquivo danificado) e para quem simplesmente quer o arquivo. */
+  async function baixarPendente(key: string, meta: PendingRecordingMeta) {
+    const blob = await getPendingRecordingBlob(key)
+    if (!blob || !blob.size) {
+      setError('O áudio desta gravação não está mais neste navegador.')
+      return
+    }
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${(meta.fallbackTitle || 'gravacao').replace(/[\\/:*?"<>|]/g, '-')}.webm`
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 2000)
   }
 
   /** Repete a ultima tentativa com o MESMO audio (reaproveita a nota se ela ja foi criada). */
@@ -1013,6 +1039,13 @@ export function Capture() {
                   disabled={resumingKey === key}
                 >
                   {resumingKey === key ? <Spinner size={14} /> : 'Retomar'}
+                </button>
+                <button
+                  className="btn-outline h-9 px-3 text-sm"
+                  onClick={() => baixarPendente(key, meta)}
+                  disabled={resumingKey === key}
+                >
+                  Baixar áudio
                 </button>
                 <button
                   className="btn-outline h-9 px-3 text-sm"

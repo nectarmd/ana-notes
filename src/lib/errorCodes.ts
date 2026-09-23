@@ -62,6 +62,12 @@ const CODES: Record<string, CodeInfo> = {
   },
   TRANSCRIBE_EMPTY_RESULT: { title: 'Transcrição voltou vazia', action: null, owner: 'user' },
   TRANSCRIBE_INVALID_MEDIA: { title: 'Áudio ilegível para o provedor', action: null, owner: 'user' },
+  RECORDER_FILE_CORRUPTED: {
+    title: 'Arquivo da gravação sem cabeçalho',
+    action:
+      'O arquivo ficou sem o início (cabeçalho), então nenhum provedor decodifica. Desde 23/09/2026 o app impede a causa conhecida (dois gravadores ao mesmo tempo). O áudio bruto pode ser baixado pelo card de recuperação e recuperado com ffmpeg.',
+    owner: 'admin',
+  },
   TRANSCRIBE_PROVIDER_LIMIT: {
     title: 'Limite do plano do Groq',
     action: 'O app manda para o AssemblyAI quando chega perto do limite. Se aparecer, o AssemblyAI também falhou: confira crédito e chave.',

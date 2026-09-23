@@ -144,15 +144,27 @@ async function whisper(file: File): Promise<{ text: string; seconds: number }> {
  * Manda o arquivo pro AssemblyAI e devolve o ID do trabalho, SEM esperar terminar: um audio de
  * ~1 h nao termina dentro do tempo de uma requisicao de edge function.
  */
+/** Por que o ultimo assemblyStart nao devolveu trabalho. Sem isto a falha do plano B era
+ *  invisivel: em 23/09/2026 o Groq recusou por limite (429), o AssemblyAI tambem nao assumiu e o
+ *  log so dizia "nao estava disponivel", sem motivo nenhum para investigar. */
+let assemblyLastError: string | null = null
+
 async function assemblyStart(file: File, diarize: boolean): Promise<string | null> {
-  if (!ASSEMBLYAI_API_KEY) return null
+  assemblyLastError = null
+  if (!ASSEMBLYAI_API_KEY) {
+    assemblyLastError = 'ASSEMBLYAI_API_KEY nao configurada'
+    return null
+  }
   try {
     const up = await fetch('https://api.assemblyai.com/v2/upload', {
       method: 'POST',
       headers: { authorization: ASSEMBLYAI_API_KEY },
       body: await file.arrayBuffer(),
     })
-    if (!up.ok) return null
+    if (!up.ok) {
+      assemblyLastError = `upload ${up.status}: ${(await up.text()).slice(0, 300)}`
+      return null
+    }
     const { upload_url } = await up.json()
 
     const tr = await fetch('https://api.assemblyai.com/v2/transcript', {
@@ -160,10 +172,15 @@ async function assemblyStart(file: File, diarize: boolean): Promise<string | nul
       headers: { authorization: ASSEMBLYAI_API_KEY, 'content-type': 'application/json' },
       body: JSON.stringify({ audio_url: upload_url, speaker_labels: diarize, language_code: 'pt' }),
     })
-    if (!tr.ok) return null
+    if (!tr.ok) {
+      assemblyLastError = `criacao do trabalho ${tr.status}: ${(await tr.text()).slice(0, 300)}`
+      return null
+    }
     const { id } = await tr.json()
+    if (!id) assemblyLastError = 'resposta do AssemblyAI sem id de trabalho'
     return id ?? null
-  } catch {
+  } catch (e) {
+    assemblyLastError = `excecao: ${e instanceof Error ? e.message : String(e)}`
     return null
   }
 }
@@ -365,8 +382,8 @@ Deno.serve(async (req) => {
       await reportIssue('TRANSCRIBE_PROVIDER_ERROR', {
         source: 'edge:transcribe',
         userId,
-        technical: `Upload/criacao do trabalho no AssemblyAI falhou (rota ${route}); tentando Whisper.`,
-        detail: { bytes: file.size },
+        technical: `Upload/criacao do trabalho no AssemblyAI falhou (rota ${route}): ${assemblyLastError ?? 'motivo desconhecido'}; tentando Whisper.`,
+        detail: { bytes: file.size, motivo: assemblyLastError },
       })
     }
 
@@ -378,6 +395,16 @@ Deno.serve(async (req) => {
       // transcricao, e o administrador fica sabendo que o provedor principal falhou.
       if (err instanceof WhisperError && err.fallback && ASSEMBLYAI_API_KEY) {
         const id = await assemblyStart(file, diarize)
+        if (!id) {
+          // O plano B tambem falhou: o usuario recebe o erro do Whisper, mas o motivo REAL da
+          // recusa do AssemblyAI fica registrado para o administrador.
+          await reportIssue('TRANSCRIBE_PROVIDER_ERROR', {
+            source: 'edge:transcribe',
+            userId,
+            technical: `Plano B falhou apos ${err.code}: ${assemblyLastError ?? 'motivo desconhecido'}`,
+            detail: { bytes: file.size, motivo: assemblyLastError },
+          })
+        }
         if (id) {
           if (userId && cacheKey) await cachePut(userId, cacheKey, { job_id: id, transcript: null, provider: 'assemblyai' })
           await reportIssue(err.code, {

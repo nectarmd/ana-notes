@@ -9,6 +9,7 @@
 //   - transcription  -> Whisper large-v3 (provedor configurado)
 
 import { config } from './config'
+import { logClientError } from './auditLog'
 import { supabase } from './supabase'
 import {
   mockAnalysis,
@@ -156,6 +157,31 @@ export async function sha256Hex(input: Blob | string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
+/**
+ * O arquivo comeca com um cabecalho que algum decodificador reconhece?
+ *
+ * Um Blob de gravacao que perdeu o primeiro pedaco (era o que acontecia quando dois gravadores
+ * rodavam juntos, ver useRecorder) vira bytes sem formato: o Groq responde "could not process
+ * file" e o AssemblyAI ve "application/octet-stream (data)". Repetir o envio nunca resolve --
+ * melhor dizer isso de cara do que deixar o usuario tentando (a Larissa tentou 5 vezes em 2
+ * minutos em 23/09/2026).
+ */
+async function temCabecalhoDeMidia(blob: Blob): Promise<boolean> {
+  try {
+    const h = new Uint8Array(await blob.slice(0, 12).arrayBuffer())
+    if (h.length < 4) return false
+    const texto = (i: number, n: number) => String.fromCharCode(...h.slice(i, i + n))
+    if (h[0] === 0x1a && h[1] === 0x45 && h[2] === 0xdf && h[3] === 0xa3) return true // WebM/Matroska
+    if (texto(4, 4) === 'ftyp') return true // MP4/M4A/MOV
+    if (['OggS', 'RIFF', 'fLaC', 'FORM'].includes(texto(0, 4))) return true // Ogg, WAV, FLAC, AIFF
+    if (texto(0, 3) === 'ID3') return true // MP3 com tag
+    if (h[0] === 0xff && (h[1] & 0xe0) === 0xe0) return true // quadro MPEG (mp3/aac solto)
+    return false
+  } catch {
+    return true // na duvida, deixa o servidor decidir: nunca barrar audio bom
+  }
+}
+
 export async function transcribeAudio(
   audio: Blob,
   opts: { diarize?: boolean; onProgress?: (mensagem: string) => void } = {},
@@ -163,6 +189,20 @@ export async function transcribeAudio(
   if (config.mockMode) {
     await delay(opts.diarize ? 1800 : 1200)
     return { transcript: opts.diarize ? mockDiarizedTranscript() : mockTranscript(), language: 'pt-BR' }
+  }
+  if (!(await temCabecalhoDeMidia(audio))) {
+    logClientError({
+      severity: 'error',
+      category: 'system',
+      source: 'client:transcribeAudio',
+      code: 'RECORDER_FILE_CORRUPTED',
+      message: 'Arquivo de áudio sem cabeçalho reconhecível: envio bloqueado antes de chamar o provedor.',
+      detail: { bytes: audio.size, type: audio.type || null },
+    })
+    throw new Error(
+      'Não conseguimos ler este áudio: o arquivo da gravação ficou danificado (perdeu o início). ' +
+        'Tentar de novo não resolve. Use "Baixar áudio" no card da gravação e envie para o suporte.',
+    )
   }
   const form = new FormData()
   const filename = audioFilename(audio)
