@@ -16,7 +16,6 @@ import {
   Video,
   Link2,
   FileText,
-  Heart,
 } from 'lucide-react'
 import { AnaIcon } from '../components/AnaIcon'
 import { useAuth } from '../auth/AuthProvider'
@@ -57,11 +56,14 @@ interface Item {
   tagVariant?: 'muted' | 'accent'
 }
 
+/** Traco dos icones do menu. O padrao do lucide (2) deixava a barra inteira pesada. */
+const TRACO = 1.6
+
 /** Menu da sidebar (desktop). "Config" nao entra aqui: virou a engrenagem no rodape. */
 const ITEMS: Item[] = [
-  { to: '/', icon: <Home size={20} />, labelKey: 'nav.notes' },
-  { to: '/tarefas', icon: <ListChecks size={20} />, labelKey: 'nav.tasks' },
-  { to: '/agenda', icon: <CalendarDays size={20} />, labelKey: 'nav.agenda' },
+  { to: '/', icon: <Home size={20} strokeWidth={TRACO} />, labelKey: 'nav.notes' },
+  { to: '/tarefas', icon: <ListChecks size={20} strokeWidth={TRACO} />, labelKey: 'nav.tasks' },
+  { to: '/agenda', icon: <CalendarDays size={20} strokeWidth={TRACO} />, labelKey: 'nav.agenda' },
 ]
 
 /**
@@ -70,10 +72,10 @@ const ITEMS: Item[] = [
  * removida, as tabelas do banco continuam.
  */
 const MORE_ITEMS: Item[] = [
-  { to: '/amigos', icon: <Users size={20} />, labelKey: 'settings.friends' },
-  { to: '/compartilhados', icon: <Share2 size={20} />, labelKey: 'settings.sharedWithMe' },
-  { to: '/conectores', icon: <Plug size={20} />, labelKey: 'settings.connectors', tagKey: 'nav.soon' },
-  { to: '/analytics', icon: <BarChart3 size={20} />, labelKey: 'settings.analytics', tagKey: 'nav.soon' },
+  { to: '/amigos', icon: <Users size={20} strokeWidth={TRACO} />, labelKey: 'settings.friends' },
+  { to: '/compartilhados', icon: <Share2 size={20} strokeWidth={TRACO} />, labelKey: 'settings.sharedWithMe' },
+  { to: '/conectores', icon: <Plug size={20} strokeWidth={TRACO} />, labelKey: 'settings.connectors', tagKey: 'nav.soon' },
+  { to: '/analytics', icon: <BarChart3 size={20} strokeWidth={TRACO} />, labelKey: 'settings.analytics', tagKey: 'nav.soon' },
 ]
 
 function SidebarLink({ item, label, tag }: { item: Item; label: string; tag?: string }) {
@@ -82,16 +84,16 @@ function SidebarLink({ item, label, tag }: { item: Item; label: string; tag?: st
       to={item.to}
       end
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-colors border ${
+        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-[0.9375rem] transition-colors border ${
           isActive
-            ? 'bg-accent/10 border-accent/25 text-accent'
+            ? 'bg-accent/10 border-accent/25 text-accent font-medium'
             : 'border-transparent text-content-secondary hover:bg-surface-elevated hover:text-content-primary'
         }`
       }
     >
       {/* shrink-0: uma etiqueta larga demais (era "COMING SOON"/"PROXIMAMENTE") espremia o icone ate
           sumir. As etiquetas agora sao curtas (SOON, PRONTO, EM BREVE) e cabem ao lado do nome. */}
-      <span className="shrink-0 grid place-items-center">{item.icon}</span>
+      <span className="shrink-0 grid place-items-center w-5">{item.icon}</span>
       <span className="flex-1 min-w-0">{label}</span>
       {tag && <NavTag variant={item.tagVariant ?? 'muted'}>{tag}</NavTag>}
     </NavLink>
@@ -142,8 +144,7 @@ function SidebarFavorites() {
 
   return (
     <div className="px-3 pb-2">
-      <p className="px-3 mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
-        <Heart size={12} className="shrink-0" />
+      <p className="px-3 mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-content-muted">
         {t('sidebar.favorites')}
       </p>
       {notes.length === 0 ? (
@@ -155,17 +156,19 @@ function SidebarFavorites() {
             <button
               onClick={() => navigate(`/nota/${n.id}`)}
               title={n.title}
-              className="w-full flex items-center gap-2.5 rounded-xl px-3 py-1.5 text-left text-content-secondary hover:bg-surface-elevated hover:text-content-primary transition-colors"
+              /* border-transparent: os itens do menu acima tem borda, e sem ela a lista de
+                 favoritos ficava 1 px a esquerda deles. */
+              className="w-full flex items-center gap-3 rounded-xl border border-transparent px-3 py-1.5 text-left text-content-secondary hover:bg-surface-elevated hover:text-content-primary transition-colors"
             >
-              <span className="grid place-items-center h-7 w-7 rounded-lg bg-surface-elevated text-accent shrink-0">
+              <span className="grid place-items-center w-5 text-accent shrink-0">
                 {n.type === 'video' ? (
-                  <Video size={14} />
+                  <Video size={16} strokeWidth={TRACO} />
                 ) : n.type === 'link' ? (
-                  <Link2 size={14} />
+                  <Link2 size={16} strokeWidth={TRACO} />
                 ) : n.type === 'file' || n.type === 'image' ? (
-                  <FileText size={14} />
+                  <FileText size={16} strokeWidth={TRACO} />
                 ) : (
-                  <Mic size={14} />
+                  <Mic size={16} strokeWidth={TRACO} />
                 )}
               </span>
               <span className="min-w-0 flex-1">
@@ -198,7 +201,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         title={t('sidebar.hide')}
         className="absolute top-3 right-3 grid place-items-center h-8 w-8 rounded-lg text-content-muted hover:bg-surface-elevated hover:text-content-primary transition-colors"
       >
-        <PanelLeftClose size={18} />
+        <PanelLeftClose size={18} strokeWidth={TRACO} />
       </button>
 
       <div className="px-4 pt-7 pb-6 flex justify-center">
@@ -218,7 +221,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           da propria <aside> acima, para o rodape (perfil/config/sair) nunca ficar inacessivel
           quando a altura util encolhe (barra de tarefas do Windows, zoom, tela pequena). */}
       <nav className="flex-1 px-3">
-        <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+        <p className="px-3 mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-content-muted">
           {t('sidebar.menu')}
         </p>
         <div className="space-y-1">
@@ -227,7 +230,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           ))}
         </div>
 
-        <p className="px-3 mt-6 mb-2 text-[11px] font-semibold uppercase tracking-wider text-content-muted">
+        <p className="px-3 mt-6 mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-content-muted">
           {t('settings.more')}
         </p>
         <div className="space-y-1 pb-2">
@@ -248,7 +251,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
         >
           {profile && <Avatar first={profile.first_name} last={profile.last_name} size={36} url={profile.avatar_url} />}
           <div className="min-w-0">
-            <p className="text-sm font-medium truncate">
+            <p className="text-sm truncate">
               {profile?.first_name} {profile?.last_name}
             </p>
             <p className="text-xs text-content-muted truncate">{profile?.email}</p>
@@ -261,7 +264,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           title={t('nav.config')}
           className="grid place-items-center h-9 w-9 rounded-xl text-content-secondary hover:bg-surface-elevated hover:text-content-primary transition-colors shrink-0"
         >
-          <SettingsIcon size={18} />
+          <SettingsIcon size={18} strokeWidth={TRACO} />
         </button>
         <button
           onClick={signOut}
@@ -269,7 +272,7 @@ function Sidebar({ onCollapse }: { onCollapse: () => void }) {
           title={t('settings.logout')}
           className="grid place-items-center h-9 w-9 rounded-xl text-content-secondary hover:bg-accent/10 hover:text-accent transition-colors shrink-0"
         >
-          <LogOut size={18} />
+          <LogOut size={18} strokeWidth={TRACO} />
         </button>
       </div>
 
@@ -431,7 +434,7 @@ export function AppShell() {
           title={t('sidebar.show')}
           className="hidden md:grid fixed top-5 left-3 z-50 place-items-center h-9 w-9 rounded-xl bg-surface-card border border-surface-border text-content-secondary hover:text-content-primary transition-colors"
         >
-          <PanelLeft size={18} />
+          <PanelLeft size={18} strokeWidth={TRACO} />
         </button>
       )}
 
@@ -463,10 +466,13 @@ export function AppShell() {
       </div>
       {!hideMobileNav && <BottomNav />}
 
-      {/* ANA global (DESKTOP): botao + balao "Falar com a ANA" ao lado. */}
+      {/* ANA global (DESKTOP): botao + balao com a fala dela ao lado. Ela chama a pessoa pelo
+          nome; sem primeiro nome cadastrado, cumprimenta sem nome em vez de deixar um buraco. */}
       <div className="hidden md:flex fixed right-6 bottom-6 z-50 items-center gap-3">
-        <span className="rounded-xl bg-surface-card border border-surface-border shadow-float px-3 py-1.5 text-sm font-medium text-content-secondary">
-          {t('sidebar.talkAna')}
+        <span className="rounded-xl bg-surface-card border border-surface-border shadow-float px-3 py-1.5 text-sm text-content-secondary">
+          {profile?.first_name?.trim()
+            ? t('sidebar.anaGreeting').replace('{nome}', profile.first_name.trim())
+            : t('sidebar.anaGreetingNoName')}
         </span>
         <button
           onClick={() => setHelpOpen(true)}
