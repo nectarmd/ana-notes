@@ -24,7 +24,6 @@ import {
   Timer,
   Info,
   Monitor,
-  Smartphone,
   SquarePlus,
   FolderOpen,
   AlertTriangle,
@@ -45,7 +44,7 @@ import { NavTag } from '../components/NavTag'
 import { logSilentError } from '../lib/auditLog'
 import { APP_NAME, APP_VERSION, isOlderVersion, WINDOWS_REQUIRED_BUILD } from '../lib/version'
 import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
-import { ANDROID_APK_DOWNLOAD_URL } from '../lib/androidApp'
+import { podeBaixarWindows, podeInstalarNoCelular } from '../lib/ondeEstou'
 import { isElectron, type AnaPaths } from '../lib/electron'
 
 /**
@@ -531,26 +530,26 @@ export function Settings() {
         <Row icon={<Trash2 size={20} />} label={t('settings.trash')} onClick={() => navigate('/lixeira')} />
       </div>
 
-      <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.apps')}</p>
-      <div className="card divide-y divide-surface-border mb-6">
-        <Row
-          icon={<Monitor size={20} />}
-          label={t('settings.downloadWindows')}
-          onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
-          right={
-            <span className="flex items-center gap-1.5">
-              <span className="text-xs font-medium text-content-muted">{APP_VERSION}</span>
-              <ChevronRight size={18} className="text-content-muted" />
-            </span>
-          }
-        />
-        <Row
-          icon={<Smartphone size={20} />}
-          label={t('settings.downloadAndroid')}
-          onClick={() => window.open(ANDROID_APK_DOWNLOAD_URL, '_blank')}
-        />
-        <Row icon={<SquarePlus size={20} />} label={t('settings.installPwa')} onClick={() => navigate('/instalar')} />
-      </div>
+      {/* So aparece o que serve NESTE aparelho (ver lib/ondeEstou.ts): dentro do app do Windows a
+          pessoa ja baixou, e num celular um instalador .exe nao serve pra nada. */}
+      {(podeBaixarWindows() || podeInstalarNoCelular()) && (
+        <>
+          <p className="text-xs uppercase tracking-wide text-content-muted mb-2 px-1">{t('settings.apps')}</p>
+          <div className="card divide-y divide-surface-border mb-6">
+            {podeBaixarWindows() && (
+              <Row
+                icon={<Monitor size={20} />}
+                label={t('settings.downloadWindows')}
+                onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
+                right={<ChevronRight size={18} className="text-content-muted" />}
+              />
+            )}
+            {podeInstalarNoCelular() && (
+              <Row icon={<SquarePlus size={20} />} label={t('settings.installPwa')} onClick={() => navigate('/instalar')} />
+            )}
+          </div>
+        </>
+      )}
 
       <WindowsAppInfo />
 

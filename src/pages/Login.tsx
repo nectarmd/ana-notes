@@ -22,8 +22,8 @@ import { Logo } from '../components/Logo'
 import { Spinner } from '../components/ui'
 import { config } from '../lib/config'
 import { setRememberMe } from '../lib/supabase'
-import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
-import { ANDROID_APK_DOWNLOAD_URL } from '../lib/androidApp'
+import { WINDOWS_APP_DOWNLOAD_URL, WINDOWS_FROM_STORE } from '../lib/windowsApp'
+import { ehCelular, podeBaixarWindows, podeInstalarNoCelular } from '../lib/ondeEstou'
 import { APP_VERSION } from '../lib/version'
 
 /** Os 4 pilares da referencia. */
@@ -123,54 +123,70 @@ export function Login() {
         {/* A tela e sempre escura, independente do tema do usuario: arte branca fixa. */}
         <Logo part="ana" heightClass="h-9 md:h-11" variant="dark" />
         <div className="flex items-center gap-3 md:gap-5">
-          <div className="relative">
-            <button
-              onClick={() => setDownloadOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-2 text-sm text-white/85 hover:bg-white/10 transition-colors"
-            >
-              <Download size={15} />
-              <span className="hidden sm:inline">{t('login.download')}</span>
-              <ChevronDown size={13} className={`transition-transform ${downloadOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {downloadOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setDownloadOpen(false)} />
-                <div className="absolute right-0 mt-2 w-60 z-20 bg-black border border-white/10 rounded-2xl shadow-float overflow-hidden py-1">
-                  <a
-                    href={WINDOWS_APP_DOWNLOAD_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => setDownloadOpen(false)}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-white hover:bg-white/10"
-                  >
-                    <Monitor size={17} className="text-accent shrink-0" />
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2 font-medium">
-                        {t('login.downloadWindows')}
-                        <span className="text-[10px] font-semibold text-white/60 border border-white/15 rounded-full px-1.5 py-0.5 shrink-0">
-                          {APP_VERSION}
+          {/* O que oferecer aqui depende de ONDE a pessoa esta (ver lib/ondeEstou.ts):
+              - no app do Windows nao aparece nada: ela ja baixou;
+              - no celular so aparece "instalar na tela de inicio" -- um .exe nao serve de nada la;
+              - no computador, o app do Windows (pela Loja, quando houver link). */}
+          {podeBaixarWindows() ? (
+            <div className="relative">
+              <button
+                onClick={() => setDownloadOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-2 text-sm text-white/85 hover:bg-white/10 transition-colors"
+              >
+                <Download size={15} />
+                <span className="hidden sm:inline">{t('login.download')}</span>
+                <ChevronDown size={13} className={`transition-transform ${downloadOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {downloadOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setDownloadOpen(false)} />
+                  <div className="absolute right-0 mt-2 w-64 z-20 bg-black border border-white/10 rounded-2xl shadow-float overflow-hidden py-1">
+                    <a
+                      href={WINDOWS_APP_DOWNLOAD_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={() => setDownloadOpen(false)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-white hover:bg-white/10"
+                    >
+                      <Monitor size={17} className="text-accent shrink-0" />
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-2 font-medium">
+                          {t('login.downloadWindows')}
+                          {!WINDOWS_FROM_STORE && (
+                            <span className="text-[10px] font-semibold text-white/60 border border-white/15 rounded-full px-1.5 py-0.5 shrink-0">
+                              {APP_VERSION}
+                            </span>
+                          )}
+                        </span>
+                        <span className="block text-xs text-white/50 mt-0.5">
+                          {WINDOWS_FROM_STORE ? t('login.downloadWindowsStore') : t('login.downloadWindowsSub')}
                         </span>
                       </span>
-                      <span className="block text-xs text-white/50 mt-0.5">{t('login.downloadWindowsSub')}</span>
-                    </span>
-                  </a>
-                  <a
-                    href={ANDROID_APK_DOWNLOAD_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={() => setDownloadOpen(false)}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-white hover:bg-white/10 border-t border-white/10"
-                  >
-                    <Smartphone size={17} className="text-accent shrink-0" />
-                    <span>
-                      <span className="block font-medium">{t('login.downloadAndroid')}</span>
-                      <span className="block text-xs text-white/50 mt-0.5">{t('login.downloadAndroidSub')}</span>
-                    </span>
-                  </a>
-                </div>
-              </>
-            )}
-          </div>
+                    </a>
+                    <Link
+                      to="/instalar"
+                      onClick={() => setDownloadOpen(false)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-left text-white hover:bg-white/10 border-t border-white/10"
+                    >
+                      <Smartphone size={17} className="text-accent shrink-0" />
+                      <span>
+                        <span className="block font-medium">{t('login.installPhone')}</span>
+                        <span className="block text-xs text-white/50 mt-0.5">{t('login.installPhoneSub')}</span>
+                      </span>
+                    </Link>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : ehCelular() && podeInstalarNoCelular() ? (
+            <Link
+              to="/instalar"
+              className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-2 text-sm text-white/85 hover:bg-white/10 transition-colors"
+            >
+              <Smartphone size={15} />
+              <span>{t('login.installPhone')}</span>
+            </Link>
+          ) : null}
         </div>
       </header>
 
