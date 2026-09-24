@@ -205,7 +205,7 @@ export function Support() {
           className="card p-4 flex items-center gap-3 text-left hover:border-accent/40 transition-colors"
         >
           <span className="grid place-items-center h-10 w-10 rounded-xl bg-surface-elevated border-2 border-brand-solid text-accent shrink-0">
-            <AnaIcon size={20} />
+            <AnaIcon size={24} />
           </span>
           <span className="min-w-0 flex-1">
             <span className="block font-medium text-sm">{t('sup.askAna')}</span>

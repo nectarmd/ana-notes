@@ -479,7 +479,7 @@ export function AppShell() {
           aria-label={t('sidebar.talkAna')}
           className="grid place-items-center h-14 w-14 rounded-full shadow-float bg-surface-elevated text-accent border-2 border-brand-solid transition-opacity hover:opacity-90"
         >
-          <AnaIcon size={26} />
+          <AnaIcon size={34} />
         </button>
       </div>
       {helpOpen && <HelpAssistant open={helpOpen} onClose={() => setHelpOpen(false)} />}

@@ -527,7 +527,7 @@ export function Help() {
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           <button onClick={() => setAnaOpen(true)} className="btn-outline h-10 px-3 text-sm">
-            <AnaIcon size={16} /> {faq.askAna}
+            <AnaIcon size={18} /> {faq.askAna}
           </button>
           <button onClick={() => navigate('/suporte')} className="btn-primary h-10 px-3 text-sm">
             <LifeBuoy size={16} /> {faq.support}

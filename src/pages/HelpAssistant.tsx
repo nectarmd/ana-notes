@@ -139,7 +139,7 @@ export function HelpAssistant({ open, onClose }: { open: boolean; onClose: () =>
     >
       <div className="flex items-center gap-3 rounded-2xl bg-surface-elevated border border-surface-border px-3 py-2.5 mb-3">
         <span className="grid place-items-center h-10 w-10 rounded-full bg-surface-card border-2 border-brand-solid text-accent shrink-0">
-          <AnaIcon size={20} />
+          <AnaIcon size={24} />
         </span>
         <div className="min-w-0">
           <p className="font-medium text-sm leading-tight">{t('sidebar.talkAna')}</p>
@@ -180,7 +180,7 @@ export function HelpAssistant({ open, onClose }: { open: boolean; onClose: () =>
             ) : (
               <div key={i} className="flex gap-2">
                 <span className="grid place-items-center h-7 w-7 rounded-full bg-surface-card border border-brand-solid text-accent shrink-0 mt-0.5">
-                  <AnaIcon size={14} />
+                  <AnaIcon size={17} />
                 </span>
                 <div className="max-w-[85%] min-w-0">
                   <div
@@ -210,7 +210,7 @@ export function HelpAssistant({ open, onClose }: { open: boolean; onClose: () =>
         {loading && (
           <div className="flex gap-2">
             <span className="grid place-items-center h-7 w-7 rounded-full bg-surface-card border border-brand-solid text-accent shrink-0 mt-0.5">
-              <AnaIcon size={14} />
+              <AnaIcon size={17} />
             </span>
             <div className="bg-surface-elevated rounded-2xl rounded-bl-md px-3.5 py-3 flex items-center gap-1">
               {[0, 150, 300].map((d) => (

@@ -483,11 +483,10 @@ export function Home() {
 
       <HomeTip />
 
-      {/* Busca em CIMA, pastas EMBAIXO (pedido de 23/09/2026). A busca continua com largura
-          limitada: esticada de ponta a ponta ela ficava enorme no app Windows. A contagem de
-          notas ocupa a sobra da linha de cima, para a faixa nao ficar vazia. */}
+      {/* Busca em CIMA, pastas EMBAIXO (pedido de 23/09/2026). A busca vai de ponta a ponta,
+          parando antes da contagem de notas (pedido de 24/09/2026). */}
       <div className="flex items-center gap-2 sm:gap-3 mb-2">
-        <div className="relative w-full sm:w-80 lg:w-96 shrink-0" ref={sortRef}>
+        <div className="relative flex-1 min-w-0" ref={sortRef}>
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" />
           <input
             className="input pl-11 pr-12"
@@ -534,7 +533,7 @@ export function Home() {
         </div>
 
         {notes && filtered.length > 0 && (
-          <span className="hidden sm:block text-xs text-content-muted whitespace-nowrap ml-auto">
+          <span className="hidden sm:block text-xs text-content-muted whitespace-nowrap shrink-0">
             {filtered.length} {filtered.length === 1 ? t('home.noteOne') : t('home.noteMany')}
           </span>
         )}
@@ -742,7 +741,7 @@ export function Home() {
                    bg-surface-elevated text-accent border-2 border-brand-solid
                    transition-opacity hover:opacity-90"
       >
-        <AnaIcon size={30} />
+        <AnaIcon size={38} />
       </button>
 
       {askOpen && <AskNotesSheet open={askOpen} onClose={() => setAskOpen(false)} notes={notes ?? []} />}
