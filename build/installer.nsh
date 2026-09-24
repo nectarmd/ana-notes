@@ -30,30 +30,41 @@
 ; Repetir funciona porque ai ja morreu, mas queremos que nem apareca).
 ;
 ; SOLUCAO: nao basta "matar e seguir" -- tem que MATAR e CONFERIR que sumiu de verdade antes de
-; extrair. E a conferencia NAO pode ser o codigo de saida do taskkill: ele devolve != 0 tanto para
-; "nao havia nada para matar" quanto para "nao consegui matar" (processo elevado -> acesso negado).
-; Nos dois casos o laco antigo saia daqui achando que estava tudo limpo -- e o instalador seguia
-; para a desinstalacao da copia antiga, que entao falhava para sempre (24/09/2026).
+; extrair. Duas armadilhas ja pagas aqui:
 ;
-; Agora quem responde "ainda existe?" e o tasklist, filtrado pelo nome do executavel e passado ao
-; find (exit 0 = achou). Teste por CODIGO DE SAIDA, nunca por texto: a saida do tasklist muda com
-; o idioma do Windows. Caminho ABSOLUTO ($SYSDIR\...) + backticks, o mesmo padrao do KILL_PROCESS
-; interno do electron-builder. O /T leva junto os processos filhos -- o Electron abre varios com
-; o mesmo nome.
+;  1. NAO da para confiar no codigo de saida do taskkill: ele devolve != 0 tanto para "nao havia
+;     nada para matar" quanto para "nao consegui matar" (processo elevado -> acesso negado). O
+;     laco saia daqui achando que estava tudo limpo e a instalacao ia falhar mais adiante.
+;  2. Cada taskkill/tasklist e um processo de CONSOLE: o Windows abre um terminal por chamada e
+;     a tela fica PISCANDO durante a instalacao inteira (relato de 24/09/2026). Numa maquina com
+;     copia antiga travada sao dezenas de voltas -- parece que o instalador esta quebrado.
+;
+; Por isso quem pergunta "ainda esta rodando?" e quem mata e o plugin nsProcess (vem com o NSIS
+; do electron-builder): ele usa a API do Windows no proprio processo do instalador -- sem console,
+; sem piscar, e com resposta confiavel (0 = achou, 603 = nao ha mais nenhum).
+; O taskkill continua como ultimo recurso, so quando o nsProcess nao deu conta: uma janela
+; piscando no caso raro e melhor que um app vivo segurando os arquivos.
 !macro _AnaKillWait UID
   StrCpy $R0 0
   ana_loop_${UID}:
+    nsProcess::_FindProcess /NOUNLOAD "${APP_EXECUTABLE_FILENAME}"
+    Pop $0
+    ; $0 != "0" -> nao ha mais nenhum processo do ANA -> pode extrair.
+    StrCmp $0 "0" 0 ana_gone_${UID}
+    nsProcess::_KillProcess /NOUNLOAD "${APP_EXECUTABLE_FILENAME}"
+    Pop $0
+    Sleep 400
+    IntOp $R0 $R0 + 1
+    ; trava de seguranca: no maximo ~10s (25 voltas) pra nunca pendurar o instalador.
+    IntCmp $R0 25 ana_teimoso_${UID} ana_loop_${UID} ana_teimoso_${UID}
+  ana_teimoso_${UID}:
+    ; esgotou o tempo com processo ainda vivo: ultima cartada, agora com o taskkill (que leva
+    ; junto os filhos com /T). Pisca uma vez, e so aqui.
     nsExec::Exec `"$SYSDIR\taskkill.exe" /F /T /IM "${APP_EXECUTABLE_FILENAME}"`
     Pop $0
     Sleep 400
-    nsExec::Exec `"$SYSDIR\cmd.exe" /c "$SYSDIR\tasklist.exe" /NH /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" | "$SYSDIR\find.exe" /I "${APP_EXECUTABLE_FILENAME}" > nul`
-    Pop $0
-    ; $0 != "0" -> o find nao achou nada -> o processo morreu de verdade.
-    StrCmp $0 "0" "" ana_gone_${UID}
-    IntOp $R0 $R0 + 1
-    ; trava de seguranca: no maximo ~10s (25 voltas) pra nunca pendurar o instalador.
-    IntCmp $R0 25 ana_gone_${UID} ana_loop_${UID} ana_gone_${UID}
   ana_gone_${UID}:
+  nsProcess::_Unload
   ; respiro final pros handles do arquivo serem liberados antes de sobrescrever.
   Sleep 800
 !macroend
