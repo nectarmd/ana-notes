@@ -483,9 +483,10 @@ export function Home() {
 
       <HomeTip />
 
-      {/* Busca + ordenacao + pastas na MESMA faixa: a busca sozinha ocupava a largura inteira da
-          tela e ficava enorme no app Windows. */}
-      <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
+      {/* Busca em CIMA, pastas EMBAIXO (pedido de 23/09/2026). A busca continua com largura
+          limitada: esticada de ponta a ponta ela ficava enorme no app Windows. A contagem de
+          notas ocupa a sobra da linha de cima, para a faixa nao ficar vazia. */}
+      <div className="flex items-center gap-2 sm:gap-3 mb-2">
         <div className="relative w-full sm:w-80 lg:w-96 shrink-0" ref={sortRef}>
           <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-content-muted" />
           <input
@@ -532,8 +533,16 @@ export function Home() {
           )}
         </div>
 
-        {/* Todas | Favoritos | pastas, nesta ordem. A faixa aparece mesmo sem pasta nenhuma:
-            os favoritos valem por si. */}
+        {notes && filtered.length > 0 && (
+          <span className="hidden sm:block text-xs text-content-muted whitespace-nowrap ml-auto">
+            {filtered.length} {filtered.length === 1 ? t('home.noteOne') : t('home.noteMany')}
+          </span>
+        )}
+      </div>
+
+      {/* Todas | Favoritos | pastas, nesta ordem, na linha de baixo. A faixa aparece mesmo sem
+          pasta nenhuma: os favoritos valem por si. */}
+      <div className="flex items-center gap-2 sm:gap-3 mb-3">
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 min-w-0 flex-1">
             <Chip active={folderFilter === 'all'} onClick={() => setFolderFilter('all')}>
               {t('home.all')}
@@ -554,8 +563,9 @@ export function Home() {
             ))}
         </div>
 
+        {/* No celular a contagem acompanha as pastas; no computador ela fica na linha da busca. */}
         {notes && filtered.length > 0 && (
-          <span className="text-xs text-content-muted whitespace-nowrap ml-auto">
+          <span className="sm:hidden text-xs text-content-muted whitespace-nowrap ml-auto">
             {filtered.length} {filtered.length === 1 ? t('home.noteOne') : t('home.noteMany')}
           </span>
         )}
