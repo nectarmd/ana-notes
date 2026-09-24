@@ -10,6 +10,8 @@ const log = require('electron-log/main')
 const path = require('node:path')
 const fs = require('node:fs')
 const { execFile, spawn } = require('node:child_process')
+const net = require('node:net')
+const os = require('node:os')
 
 const APP_URL = 'https://ana.nectarmd.com.br'
 const RECORD_HOTKEY = 'CommandOrControl+Shift+G'
@@ -161,6 +163,79 @@ let tray = null
  * abrir so foca a janela do processo original, sem nunca competir pelo mesmo storage.
  */
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
+
+/**
+ * Trava de janela unica ENTRE COPIAS DIFERENTES do ANA (24/09/2026).
+ *
+ * O requestSingleInstanceLock() do Electron acima so enxerga copias que compartilham a MESMA
+ * pasta de dados (userData). Duas instalacoes que escrevem em pastas diferentes -- a copia da
+ * Microsoft Store (o Windows redireciona o AppData de app empacotado), ou uma instalacao antiga
+ * que usava outro nome de pasta -- cada uma pega a "sua" trava e as duas abrem ao mesmo tempo.
+ * Foi o que aconteceu na maquina de uma usuaria: varias janelas do ANA abertas.
+ *
+ * Aqui a trava e um CANAL NOMEADO do Windows, de nome fixo: quem abrir primeiro fica escutando;
+ * qualquer outra copia que abrir depois conecta, pede "foca a sua janela" e fecha sozinha. Vale
+ * para qualquer copia, de qualquer pasta, porque nao depende de arquivo nenhum.
+ *
+ * Detalhes que importam:
+ *  - o nome leva o usuario do Windows: em PC compartilhado, a janela da Maria nao pode impedir
+ *    o ANA do Joao de abrir;
+ *  - se o app morrer, o Windows derruba o canal sozinho -- nao existe "trava velha" presa;
+ *  - tudo tem prazo (800 ms). Qualquer duvida, o app ABRE: e melhor uma janela a mais do que um
+ *    app que nao abre;
+ *  - so vale entre copias que ja tem este codigo. Uma copia antiga rodando ao lado nao escuta o
+ *    canal, entao a protecao aparece quando as duas estiverem atualizadas.
+ */
+const CANAL_UMA_JANELA = `\\\\.\\pipe\\ana-uma-janela-${(os.userInfo().username || 'ana').replace(/[^a-zA-Z0-9]/g, '')}`
+let servidorDaVez = null
+
+function mostrarJanela() {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+  }
+}
+
+/** true = esta copia pode abrir; false = ja existe um ANA aberto (e ele foi trazido pra frente). */
+function pegarAVez() {
+  return new Promise((resolve) => {
+    let respondido = false
+    const responder = (v) => {
+      if (respondido) return
+      respondido = true
+      resolve(v)
+    }
+    // Prazo de seguranca: se o canal travar por qualquer motivo, o app abre.
+    const prazo = setTimeout(() => responder(true), 800)
+
+    const cliente = net.connect(CANAL_UMA_JANELA)
+    cliente.on('connect', () => {
+      // Ja existe um ANA aberto: pede a ele para aparecer e desiste de abrir esta copia.
+      cliente.end('foca')
+      clearTimeout(prazo)
+      responder(false)
+    })
+    cliente.on('error', () => {
+      // Ninguem escutando: esta copia assume o posto.
+      const servidor = net.createServer((conexao) => {
+        conexao.on('data', () => mostrarJanela())
+      })
+      servidor.on('error', (err) => {
+        // Corrida rara (duas copias abrindo no mesmo instante) ou canal indisponivel: abre assim
+        // mesmo, que e o comportamento antigo.
+        log.warn('canal de janela unica indisponivel:', err && err.message)
+        clearTimeout(prazo)
+        responder(true)
+      })
+      servidor.listen(CANAL_UMA_JANELA, () => {
+        servidorDaVez = servidor
+        clearTimeout(prazo)
+        responder(true)
+      })
+    })
+  })
+}
 
 if (!gotSingleInstanceLock) {
   app.quit()
@@ -783,6 +858,15 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
   }
 
   app.whenReady().then(async () => {
+    // Ja existe um ANA aberto nesta maquina (inclusive uma copia instalada em outra pasta)?
+    // Entao traz a janela dele pra frente e esta copia fecha, sem abrir uma segunda janela.
+    if (!(await pegarAVez())) {
+      log.info('ja existe um ANA aberto nesta maquina -- esta copia vai fechar')
+      app.isQuitting = true
+      app.quit()
+      return
+    }
+
     if (await guardAgainstStaleCopy()) return
 
     // Autoriza getDisplayMedia() (usado pelo "Gravar Meet" do site) SEM o dialogo de escolha
@@ -853,5 +937,14 @@ $form.Add_Shown({ if ($env:ANA_READY_FILE) { Set-Content -LiteralPath $env:ANA_R
 
   // Continua rodando na bandeja no Windows mesmo com todas as janelas fechadas -- so encerra
   // mesmo via "Sair" no menu da bandeja (app.isQuitting).
+  app.on('will-quit', () => {
+    if (servidorDaVez) {
+      try {
+        servidorDaVez.close()
+      } catch (_) {}
+      servidorDaVez = null
+    }
+  })
+
   app.on('window-all-closed', () => {})
 }
