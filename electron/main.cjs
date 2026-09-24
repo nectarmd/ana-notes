@@ -165,28 +165,35 @@ let tray = null
 const gotSingleInstanceLock = app.requestSingleInstanceLock()
 
 /**
- * Trava de janela unica ENTRE COPIAS DIFERENTES do ANA (24/09/2026).
+ * Trava de janela unica na MAQUINA INTEIRA (24/09/2026).
  *
- * O requestSingleInstanceLock() do Electron acima so enxerga copias que compartilham a MESMA
- * pasta de dados (userData). Duas instalacoes que escrevem em pastas diferentes -- a copia da
- * Microsoft Store (o Windows redireciona o AppData de app empacotado), ou uma instalacao antiga
- * que usava outro nome de pasta -- cada uma pega a "sua" trava e as duas abrem ao mesmo tempo.
- * Foi o que aconteceu na maquina de uma usuaria: varias janelas do ANA abertas.
+ * O requestSingleInstanceLock() do Electron (acima) so enxerga copias que compartilham a MESMA
+ * pasta de dados (userData) E o mesmo nivel de permissao. Ele deixa passar dois casos reais:
  *
- * Aqui a trava e um CANAL NOMEADO do Windows, de nome fixo: quem abrir primeiro fica escutando;
- * qualquer outra copia que abrir depois conecta, pede "foca a sua janela" e fecha sozinha. Vale
- * para qualquer copia, de qualquer pasta, porque nao depende de arquivo nenhum.
+ *  - duas INSTALACOES que gravam em pastas diferentes: a copia da Microsoft Store (o Windows
+ *    redireciona o AppData de app empacotado) ou uma instalacao antiga com outro nome de pasta;
+ *  - um ANA aberto COMO ADMINISTRADOR ao lado de um ANA comum: o Windows nao deixa o processo
+ *    comum enxergar nem falar com o elevado (UIPI), entao cada um acha que e o unico.
+ *
+ * Por isso a trava daqui e uma porta local em 127.0.0.1: ela atravessa niveis de permissao e nao
+ * depende de onde o app foi instalado. Quem abre primeiro escuta; quem abrir depois conecta, se
+ * identifica, pede "traga sua janela pra frente" e fecha sozinho.
+ *
+ * Um canal nomeado (\\.\pipe\...) foi a primeira tentativa e cobria so o primeiro caso: as
+ * permissoes do canal criado por um processo elevado barram o processo comum.
  *
  * Detalhes que importam:
- *  - o nome leva o usuario do Windows: em PC compartilhado, a janela da Maria nao pode impedir
- *    o ANA do Joao de abrir;
- *  - se o app morrer, o Windows derruba o canal sozinho -- nao existe "trava velha" presa;
- *  - tudo tem prazo (800 ms). Qualquer duvida, o app ABRE: e melhor uma janela a mais do que um
- *    app que nao abre;
- *  - so vale entre copias que ja tem este codigo. Uma copia antiga rodando ao lado nao escuta o
- *    canal, entao a protecao aparece quando as duas estiverem atualizadas.
+ *  - so escuta em 127.0.0.1 -- nao abre nada para a rede e nao dispara aviso do firewall;
+ *  - ha um APERTO DE MAO ("ANA1" + usuario do Windows). Se a porta estiver ocupada por outro
+ *    programa qualquer, a resposta nao bate e o ANA abre normalmente;
+ *  - o usuario do Windows entra na conversa porque a porta e da maquina, nao da sessao: em PC
+ *    com duas contas logadas, o ANA de uma nao pode impedir o da outra de abrir;
+ *  - tudo tem prazo de 800 ms e, em qualquer duvida, o app ABRE: uma janela a mais e melhor que
+ *    um app que nao abre;
+ *  - so vale entre copias que ja tem este codigo -- uma copia antiga ao lado nao responde.
  */
-const CANAL_UMA_JANELA = `\\\\.\\pipe\\ana-uma-janela-${(os.userInfo().username || 'ana').replace(/[^a-zA-Z0-9]/g, '')}`
+const PORTA_UMA_JANELA = 53127
+const APERTO_DE_MAO = `ANA1 ${(os.userInfo().username || 'ana').replace(/[^a-zA-Z0-9]/g, '')}`
 let servidorDaVez = null
 
 function mostrarJanela() {
@@ -206,33 +213,48 @@ function pegarAVez() {
       respondido = true
       resolve(v)
     }
-    // Prazo de seguranca: se o canal travar por qualquer motivo, o app abre.
+    // Prazo de seguranca: se algo travar, o app abre.
     const prazo = setTimeout(() => responder(true), 800)
 
-    const cliente = net.connect(CANAL_UMA_JANELA)
-    cliente.on('connect', () => {
-      // Ja existe um ANA aberto: pede a ele para aparecer e desiste de abrir esta copia.
-      cliente.end('foca')
-      clearTimeout(prazo)
-      responder(false)
-    })
-    cliente.on('error', () => {
-      // Ninguem escutando: esta copia assume o posto.
+    function virarDono() {
       const servidor = net.createServer((conexao) => {
+        // Quem chega recebe quem somos; se for outro ANA do mesmo usuario, ele pede foco e sai.
+        conexao.write(APERTO_DE_MAO + '\n')
         conexao.on('data', () => mostrarJanela())
+        conexao.on('error', () => {})
       })
       servidor.on('error', (err) => {
-        // Corrida rara (duas copias abrindo no mesmo instante) ou canal indisponivel: abre assim
-        // mesmo, que e o comportamento antigo.
-        log.warn('canal de janela unica indisponivel:', err && err.message)
+        // Porta ocupada por outro programa, ou corrida entre duas copias abrindo no mesmo
+        // instante: abre assim mesmo, que e o comportamento antigo.
+        log.warn('trava de janela unica indisponivel:', err && err.message)
         clearTimeout(prazo)
         responder(true)
       })
-      servidor.listen(CANAL_UMA_JANELA, () => {
+      servidor.listen(PORTA_UMA_JANELA, '127.0.0.1', () => {
         servidorDaVez = servidor
         clearTimeout(prazo)
         responder(true)
       })
+    }
+
+    const cliente = net.connect(PORTA_UMA_JANELA, '127.0.0.1')
+    cliente.on('data', (dados) => {
+      const quem = String(dados).trim()
+      if (quem === APERTO_DE_MAO) {
+        // E um ANA deste mesmo usuario: pede a janela dele e desiste de abrir esta copia.
+        cliente.end('foca')
+        clearTimeout(prazo)
+        responder(false)
+      } else {
+        // Porta ocupada por outra coisa (ou por outro usuario do Windows): abre normalmente.
+        cliente.destroy()
+        clearTimeout(prazo)
+        responder(true)
+      }
+    })
+    cliente.on('error', () => {
+      // Ninguem escutando: esta copia assume o posto.
+      virarDono()
     })
   })
 }
