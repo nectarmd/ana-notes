@@ -85,6 +85,10 @@ export function UpdateWall() {
           <Download size={18} /> {t('update.wallCta')}
         </button>
 
+        {/* O que trava a instalacao na pratica: o aviso do SmartScreen (o instalador nao e
+            assinado) e a duvida de fechar ou nao o app antes. O instalador fecha o ANA sozinho. */}
+        <p className="mt-3 text-xs text-content-muted leading-relaxed">{t('update.wallHint')}</p>
+
         <div className="mt-4 rounded-xl bg-surface-elevated border border-surface-border px-4 py-3 text-left">
           <p className="text-xs text-content-muted">{t('update.wallFallback')}</p>
           <div className="flex items-center gap-2 mt-1.5">

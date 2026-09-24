@@ -29,23 +29,30 @@
 ; pega um arquivo ainda travado e o Windows mostra o erro "arquivo em uso / Repetir" (clicar em
 ; Repetir funciona porque ai ja morreu, mas queremos que nem apareca).
 ;
-; SOLUCAO: nao basta "matar e seguir" -- tem que MATAR e ESPERAR sumir de verdade antes de extrair.
-; taskkill /F /IM retorna 0 enquanto ainda ha algum processo com esse nome pra matar; quando nao
-; acha mais nada, retorna != 0. Entao repetimos ate dar "nada pra matar" e damos um respiro pros
-; handles do .exe serem liberados. Caminho ABSOLUTO ($SYSDIR\taskkill.exe) + backticks (o mesmo
-; padrao do KILL_PROCESS interno do electron-builder).
+; SOLUCAO: nao basta "matar e seguir" -- tem que MATAR e CONFERIR que sumiu de verdade antes de
+; extrair. E a conferencia NAO pode ser o codigo de saida do taskkill: ele devolve != 0 tanto para
+; "nao havia nada para matar" quanto para "nao consegui matar" (processo elevado -> acesso negado).
+; Nos dois casos o laco antigo saia daqui achando que estava tudo limpo -- e o instalador seguia
+; para a desinstalacao da copia antiga, que entao falhava para sempre (24/09/2026).
+;
+; Agora quem responde "ainda existe?" e o tasklist, filtrado pelo nome do executavel e passado ao
+; find (exit 0 = achou). Teste por CODIGO DE SAIDA, nunca por texto: a saida do tasklist muda com
+; o idioma do Windows. Caminho ABSOLUTO ($SYSDIR\...) + backticks, o mesmo padrao do KILL_PROCESS
+; interno do electron-builder. O /T leva junto os processos filhos -- o Electron abre varios com
+; o mesmo nome.
 !macro _AnaKillWait UID
   StrCpy $R0 0
   ana_loop_${UID}:
-    nsExec::Exec `"$SYSDIR\taskkill.exe" /F /IM "${APP_EXECUTABLE_FILENAME}"`
+    nsExec::Exec `"$SYSDIR\taskkill.exe" /F /T /IM "${APP_EXECUTABLE_FILENAME}"`
     Pop $0
-    ; $0 == "0" -> matou algo (pode haver mais/helpers) -> espera e tenta de novo.
-    ; $0 != "0" -> nao ha mais processo -> sai do loop.
-    StrCmp $0 "0" "" ana_gone_${UID}
     Sleep 400
+    nsExec::Exec `"$SYSDIR\cmd.exe" /c "$SYSDIR\tasklist.exe" /NH /FI "IMAGENAME eq ${APP_EXECUTABLE_FILENAME}" | "$SYSDIR\find.exe" /I "${APP_EXECUTABLE_FILENAME}" > nul`
+    Pop $0
+    ; $0 != "0" -> o find nao achou nada -> o processo morreu de verdade.
+    StrCmp $0 "0" "" ana_gone_${UID}
     IntOp $R0 $R0 + 1
-    ; trava de seguranca: no maximo ~6s de espera (15 x 400ms) pra nunca pendurar o instalador.
-    IntCmp $R0 15 ana_gone_${UID} ana_loop_${UID} ana_gone_${UID}
+    ; trava de seguranca: no maximo ~10s (25 voltas) pra nunca pendurar o instalador.
+    IntCmp $R0 25 ana_gone_${UID} ana_loop_${UID} ana_gone_${UID}
   ana_gone_${UID}:
   ; respiro final pros handles do arquivo serem liberados antes de sobrescrever.
   Sleep 800
@@ -105,6 +112,10 @@
   ; NAO pode ficar: um .exe sobrando ali e exatamente o que o usuario continua clicando por
   ; engano. RMDir /r pula o que estiver travado, nunca pendura o instalador.
   RMDir /r "$R8"
+  ; O desinstalador antigo em especial TEM que sair. Enquanto o arquivo existir, o template do
+  ; electron-builder continua tentando executa-lo (ver _AnaPurgeHive) -- e um desinstalador que
+  ; falha sempre prende a instalacao inteira.
+  Delete "$R8\${UNINSTALL_FILENAME}"
 
   ana_rm_end_${UID}:
 !macroend
@@ -141,9 +152,13 @@
     Pop $R8
     StrCmp "$R8" "$INSTDIR" ana_hive_loop_${UID} 0
     !insertmacro _AnaRemoveCopy ${UID} 1
-    ; Se a pasta sumiu, a entrada em "Aplicativos instalados" nao pode continuar la -- era ela
-    ; que fazia o usuario ver 3-4 "ANA by Tailor" na lista de programas do Windows.
-    IfFileExists "$R8\*.*" ana_hive_loop_${UID} 0
+    ; Se o DESINSTALADOR daquela copia sumiu, a entrada em "Aplicativos instalados" nao pode
+    ; continuar la. Alem de fazer o usuario ver 3-4 "ANA by Tailor" na lista de programas, e
+    ; justamente essa entrada que o template do electron-builder le antes de extrair: ele roda o
+    ; desinstalador dela e, enquanto ele devolver erro, para a instalacao com "Repetir/Cancelar".
+    ; Antes exigiamos a pasta INTEIRA vazia -- um unico arquivo travado bastava para a entrada
+    ; quebrada ficar para tras (24/09/2026).
+    IfFileExists "$R7" ana_hive_loop_${UID} 0
       DeleteRegKey ${HIVE} "Software\Microsoft\Windows\CurrentVersion\Uninstall\$R4"
       ; a chave saiu do meio da enumeracao: volta um indice pra nao pular a proxima
       IntOp $R2 $R2 - 1
