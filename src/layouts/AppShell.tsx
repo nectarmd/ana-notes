@@ -27,6 +27,7 @@ import { UpdateBanner } from '../components/UpdateBanner'
 import { NewNoteSheet } from '../components/NewNoteSheet'
 import { NavTag } from '../components/NavTag'
 import { startCalendarReminders } from '../lib/calendarReminders'
+import { retomarPendentes } from '../lib/noteJobs'
 import { canReceiveSharedFiles, consumeSharedFile, onSharedFile, setPendingUpload } from '../lib/sharedFile'
 import { useAppSettings } from '../app/SettingsProvider'
 import { announcementActive } from '../lib/appSettings'
@@ -347,7 +348,7 @@ export function AppShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const t = useT()
-  const { isAdmin } = useAuth()
+  const { isAdmin, profile } = useAuth()
   const { settings } = useAppSettings()
   const hideMobileNav = HIDE_MOBILE_NAV_ON.some((p) => location.pathname.startsWith(p))
   const showBanner = announcementActive(settings)
@@ -377,6 +378,14 @@ export function AppShell() {
 
   // Lembretes de eventos do calendario (enquanto o app esta aberto).
   useEffect(() => startCalendarReminders(), [])
+
+  // Gravacao que ficou pela metade (app fechado ou recarregado no meio do processamento): volta
+  // para a fila sozinha. Fica aqui, e nao na tela de gravacao, porque quem reabre o app cai na
+  // Home -- se dependesse de abrir /capturar, a nota ficaria "processando" para sempre.
+  useEffect(() => {
+    if (!profile) return
+    void retomarPendentes(profile.id)
+  }, [profile])
 
   // Share target (APK Android): audio/video compartilhado de outro app cai aqui.
   useEffect(() => {

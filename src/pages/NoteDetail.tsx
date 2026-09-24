@@ -30,6 +30,7 @@ import {
   Lightbulb,
   Target,
   AlertTriangle,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../auth/AuthProvider'
 import { db, config } from '../lib/api'
@@ -65,6 +66,7 @@ import { TaskFlag } from '../components/TaskPriority'
 import { directoryByIds } from '../lib/directory'
 import { markKeysRead } from '../lib/inbox'
 import { nameMap, NOTE_CHANGED_EVENT, withSpeakerNames } from '../lib/speakers'
+import { estaNaFila, retomarNota, temGravacaoLocal } from '../lib/noteJobs'
 import { SpeakersPanel } from '../components/SpeakersPanel'
 
 type Tab = 'summary' | 'detailed' | 'analysis' | 'transcript'
@@ -73,6 +75,7 @@ export function NoteDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { profile } = useAuth()
+  const [tentandoDeNovo, setTentandoDeNovo] = useState(false)
   const toast = useToast()
   const t = useT()
   const [note, setNote] = useState<Note | null | undefined>(undefined)
@@ -542,6 +545,45 @@ export function NoteDetail() {
             {t('note.audioRemoved').replace('{n}', String(config.audioRetentionDays))}
           </div>
         )}
+
+        {/* Andamento do processamento. A nota existe desde que a gravacao terminou, entao ela
+            pode estar esperando a transcricao ou o resumo -- ou ter parado num provedor fora do
+            ar. Dizer isso aqui e o que evita a pessoa achar que o app comeu a gravacao. */}
+        {note.processing_error ? (
+          <div className="alert-error mb-5">
+            <p className="flex items-center gap-2 font-medium">
+              <AlertTriangle size={16} className="shrink-0" /> {t('note.procFailedTitle')}
+            </p>
+            <p className="mt-1 text-sm">{note.processing_error}</p>
+            <p className="mt-1 text-sm">{t('note.procFailedHelp')}</p>
+            {/* A tentativa automatica para na terceira. Daqui em diante e a pessoa que decide --
+                e so aparece se a gravacao ainda estiver neste aparelho. */}
+            {temGravacaoLocal(note.id) && !estaNaFila(note.id) && (
+              <button
+                onClick={async () => {
+                  if (!profile) return
+                  setTentandoDeNovo(true)
+                  try {
+                    await retomarNota(note.id, profile.id)
+                  } finally {
+                    setTentandoDeNovo(false)
+                  }
+                }}
+                disabled={tentandoDeNovo}
+                className="btn-secondary mt-3 h-9 px-3 text-sm"
+              >
+                {tentandoDeNovo ? <Spinner size={14} /> : <RefreshCw size={14} />} {t('note.procRetry')}
+              </button>
+            )}
+          </div>
+        ) : note.status === 'processing' ? (
+          <div className="card px-4 py-3 mb-5 flex items-center gap-3">
+            <Spinner size={16} className="text-accent shrink-0" />
+            <span className="text-sm">
+              {note.processing_stage === 'summarizing' ? t('note.procSummarizing') : t('note.procTranscribing')}
+            </span>
+          </div>
+        ) : null}
 
         {/* Quick actions */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">

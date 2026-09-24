@@ -19,6 +19,17 @@ export const APP_NAME = 'ANA'
  */
 export const WINDOWS_REQUIRED_BUILD = '0.20.2'
 
+/**
+ * Abaixo DESTA versao o app para de funcionar e mostra a parede de atualizacao (UpdateWall).
+ *
+ * 0.18.26 e a primeira que se atualiza sozinha em silencio: quem esta abaixo dela nunca vai
+ * receber correcao nenhuma no lado nativo, por mais que o site evolua. Em 23/09/2026 metade da
+ * equipe estava assim (Larissa e Giovana na 0.18.15, de agosto), e um mes de aviso discreto no
+ * topo da tela nao moveu ninguem. Suba este numero so quando uma versao antiga estiver causando
+ * problema de verdade -- cada aumento tranca quem nao atualizar.
+ */
+export const WINDOWS_MIN_BUILD = '0.18.26'
+
 /** true se `a` for MENOR que `b` ("0.18.9" < "0.18.10"). Partes ausentes contam 0. */
 export function isOlderVersion(a: string, b: string): boolean {
   const pa = a.replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0)

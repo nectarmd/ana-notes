@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
+  AlertTriangle,
   Search,
   SearchX,
   Link2,
   Mic,
   NotebookPen,
-  MessageSquare,
+  MessageSquare,
   SlidersHorizontal,
   Check,
   Smartphone,
@@ -30,9 +31,10 @@ import { db } from '../lib/api'
 import type { Note, Folder, Tip } from '../lib/types'
 import { tipsEnabled, listActiveTips } from '../lib/tips'
 import { emitFavoritesChanged } from '../lib/favorites'
+import { JOBS_CHANGED_EVENT } from '../lib/noteJobs'
 import { useAppSettings } from '../app/SettingsProvider'
 import { fmtDate, fmtDuration, fmtTime } from '../lib/format'
-import { Avatar, EmptyState, Chip, NoteCardSkeleton, PriorityBadge, ConfirmDialog } from '../components/ui'
+import { Avatar, EmptyState, Chip, NoteCardSkeleton, PriorityBadge, ConfirmDialog, Spinner } from '../components/ui'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { Logo } from '../components/Logo'
 import { NewNoteSheet } from '../components/NewNoteSheet'
@@ -255,6 +257,18 @@ export function Home() {
     db.listFolders(profile.id).then(setFolderList).catch(() => {})
   }, [profile])
 
+  // Gravacao terminou de processar em segundo plano: atualiza a lista sem a pessoa recarregar.
+  useEffect(() => {
+    if (!profile) return
+    const onJobs = () => {
+      db.listNotes(profile.id)
+        .then(setNotes)
+        .catch((err) => logSilentError('client:Home.recarregarNotas', err))
+    }
+    window.addEventListener(JOBS_CHANGED_EVENT, onJobs)
+    return () => window.removeEventListener(JOBS_CHANGED_EVENT, onJobs)
+  }, [profile])
+
   // Fecha o menu de ordenacao ao clicar fora ou apertar Esc.
   useEffect(() => {
     if (!sortOpen) return
@@ -339,6 +353,15 @@ export function Home() {
   }, [notes, query, folderFilter, sort])
 
   const hasFilters = query.trim() !== '' || folderFilter !== 'all'
+
+  // Gravacoes que ainda nao viraram nota pronta. As que PARARAM num erro ficam separadas: dizer
+  // "processando" numa nota que ja desistiu seria mentir para quem esta esperando.
+  const naoPromptas = (notes ?? []).filter((n) => n.status === 'processing')
+  const paradas = naoPromptas.filter((n) => !!n.processing_error)
+  const emProcessamento = naoPromptas.filter((n) => !n.processing_error)
+  const processando = emProcessamento.length
+  const processando1 = emProcessamento[0]
+  const parada1 = paradas[0]
 
 
   return (
@@ -428,6 +451,35 @@ export function Home() {
         <span className="hidden sm:block text-xs text-content-muted truncate max-w-[26rem]">{t('home.chatAllHint')}</span>
         <ChevronRight size={18} className="text-content-muted shrink-0" />
       </button>
+
+      {/* Gravacoes ainda em processamento: a pessoa ve que o app esta trabalhando, em vez de
+          ficar presa numa tela de espera. */}
+      {processando > 0 && (
+        <button
+          onClick={() => navigate(`/nota/${processando1?.id ?? ''}`)}
+          disabled={!processando1}
+          className="card w-full mb-3 px-4 py-3 flex items-center gap-3 text-left disabled:cursor-default"
+        >
+          <Spinner size={16} className="text-accent shrink-0" />
+          <span className="text-sm min-w-0 flex-1">
+            {t(processando === 1 ? 'home.processingOne' : 'home.processingMany').replace('{n}', String(processando))}
+          </span>
+        </button>
+      )}
+
+      {/* Gravacao que parou num provedor fora do ar: some da contagem de "processando" e vira um
+          aviso proprio, que leva direto para a nota (onde da para tentar de novo). */}
+      {parada1 && (
+        <button
+          onClick={() => navigate(`/nota/${parada1.id}`)}
+          className="alert-error w-full mb-3 px-4 py-3 flex items-center gap-3 text-left"
+        >
+          <AlertTriangle size={16} className="shrink-0" />
+          <span className="text-sm min-w-0 flex-1">
+            {t(paradas.length === 1 ? 'home.stoppedOne' : 'home.stoppedMany').replace('{n}', String(paradas.length))}
+          </span>
+        </button>
+      )}
 
       <HomeTip />
 
@@ -586,9 +638,13 @@ export function Home() {
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
                   <h3 className="flex-1 min-w-0 font-semibold truncate">{n.title}</h3>
+                  {/* Nota que parou num erro nao diz mais "processando": o cartao repetia isso
+                      para sempre enquanto a nota nunca ia sair do lugar sozinha. */}
                   {n.status === 'processing' && (
-                    <span className="text-[10px] uppercase tracking-wide bg-brand-solid text-white px-1.5 py-0.5 rounded shrink-0">
-                      {t('home.processing')}
+                    <span
+                      className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded shrink-0 ${n.processing_error ? 'bg-surface-elevated text-content-muted border border-surface-border' : 'bg-brand-solid text-white'}`}
+                    >
+                      {n.processing_error ? t('home.stoppedTag') : t('home.processing')}
                     </span>
                   )}
                 </div>

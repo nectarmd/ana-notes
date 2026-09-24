@@ -245,6 +245,12 @@ export interface Note {
   speakers?: NoteSpeakers | null
   /** Coracao do cartao (0044). E pessoal: a copia compartilhada nasce sem ele. */
   favorite: boolean
+  /** Etapa do processamento em segundo plano (0045): 'transcribing' | 'summarizing' | null. */
+  processing_stage?: string | null
+  /** Ultima falha do processamento, em linguagem de usuario. null quando deu certo. */
+  processing_error?: string | null
+  /** Quantas vezes ja tentamos concluir esta nota. */
+  processing_attempts?: number
   keep_audio: boolean
   audio_deleted_at: string | null
   deleted_at: string | null

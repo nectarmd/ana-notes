@@ -29,6 +29,7 @@ import { AuditLogPage } from './pages/AuditLog'
 import { AdminTips } from './pages/AdminTips'
 import { InstallApp } from './pages/InstallApp'
 import { isElectron } from './lib/electron'
+import { UpdateWall } from './components/UpdateWall'
 import type { ReactNode } from 'react'
 
 function FullscreenLoader() {
@@ -92,7 +93,11 @@ export default function App() {
   }, [profile, navigate])
 
   return (
-    <Routes>
+    <>
+      {/* Instalador antigo demais (nao se atualiza sozinho): cobre o app inteiro, menos a tela de
+          gravacao, e sempre pode ser adiado por um dia. Ver UpdateWall. */}
+      <UpdateWall />
+      <Routes>
       <Route
         path="/login"
         element={loading ? <FullscreenLoader /> : profile ? <Navigate to="/" replace /> : <Login />}
@@ -168,7 +173,8 @@ export default function App() {
         />
       </Route>
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </>
   )
 }

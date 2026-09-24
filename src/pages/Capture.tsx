@@ -40,7 +40,6 @@ import {
   generateSummaryAndItems,
   identifySpeakers,
   summarizeImage,
-  transcribeAudio,
 } from '../lib/ai'
 import { hasSpeakers, mergeAutoNames, NOTE_CHANGED_EVENT, type NoteSpeakers } from '../lib/speakers'
 import { findRecentNoteWithTranscript } from '../lib/noteDedupe'
@@ -53,7 +52,8 @@ import {
   setPendingRecordingNote,
   type PendingRecordingMeta,
 } from '../lib/audioStore'
-import { isSilentAudio, audioRms } from '../lib/audioLevel'
+import { isSilentAudio } from '../lib/audioLevel'
+import { enfileirarNota } from '../lib/noteJobs'
 import { currentDevice } from '../lib/device'
 import { fmtClock, fmtDuration } from '../lib/format'
 import { AutoTextarea, Spinner } from '../components/ui'
@@ -100,7 +100,7 @@ export function Capture() {
   const [step, setStep] = useState(0)
   /** Aviso extra durante o processamento (ex.: audio grande transcrevendo ha X min). O subtitulo
    *  padrao promete "alguns segundos" -- para um arquivo de 1 h isso parece travado. */
-  const [stepNote, setStepNote] = useState<string | null>(null)
+const [stepNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // A ultima tentativa parou no aviso de "gravacao silenciosa": habilita o botao de
   // transcrever mesmo assim (a decisao e do usuario, nunca do app).
@@ -447,80 +447,84 @@ export function Capture() {
 
       let note = createdNoteRef.current
 
+      // ------------------------------------------------------------------------------------
+      // GRAVACAO DE AUDIO: a nota nasce AGORA, antes de transcrever.
+      //
+      // Ate 23/09/2026 a tela segurava a pessoa ate transcricao e resumo terminarem. Se um
+      // provedor falhava, ela via o relogio girando, clicava em parar de novo e achava o app
+      // quebrado -- mesmo com o audio salvo. Agora ela sai daqui com a nota na mao e o resto
+      // corre em segundo plano (ver noteJobs.ts), com o andamento gravado na propria nota.
+      // ------------------------------------------------------------------------------------
+      if (opts.audioBlob) {
+        // Evita transcricao "alucinada" quando a gravacao ficou muda. SO AVISA — jamais apaga: o
+        // audio segue salvo neste aparelho e o usuario decide se transcreve mesmo assim. (Um
+        // delete que rodava aqui destruiu uma reuniao de 69 min em 04/08/2026 por um falso
+        // positivo de silencio.) So GRAVACOES proprias passam pelo filtro: um ARQUIVO enviado e
+        // ato deliberado, e o filtro decodifica o audio INTEIRO para PCM na memoria (um m4a de
+        // ~50 MB/53 min vira ~1 GB) antes mesmo do upload.
+        if (opts.type === 'recording' && !opts.ignoreSilence && (await isSilentAudio(opts.audioBlob))) {
+          if (superseded()) return
+          setSilentDetected(true)
+          setError(
+            'Não captamos quase nenhum áudio nesta gravação. Ela continua salva neste aparelho — você pode transcrever mesmo assim.',
+          )
+          setProcessing(false)
+          return
+        }
+
+        if (!note) {
+          note = await db.createNote({
+            user_id: profile.id,
+            title: title.trim() || opts.fallbackTitle,
+            type: opts.type,
+            device: currentDevice(),
+            template,
+            context,
+            duration_seconds: opts.duration ?? 0,
+            language: 'pt-BR',
+            transcript: '',
+            summary: '',
+            action_items: [],
+            status: 'processing',
+            processing_stage: 'transcribing',
+          })
+          if (superseded()) return
+          // Liga a gravacao salva neste aparelho a nota: retomar depois reaproveita ESTA nota.
+          setPendingRecordingNote(pendingKey, note.id)
+          // So contabiliza uso DEPOIS que a nota existe de verdade.
+          await db.logUsage(profile.id, 'recording')
+          await db.logUsage(profile.id, 'transcription')
+        }
+
+        enfileirarNota({
+          noteId: note.id,
+          pendingKey,
+          userId: profile.id,
+          title: note.title,
+          meta: {
+            diarize,
+            template,
+            context,
+            skipAudioStore: !!opts.skipAudioStore,
+            skipActionItems: !!opts.skipActionItems,
+          },
+        })
+        // A fila assume daqui: esta tela nao guarda mais nada desta gravacao.
+        pendingKeyRef.current = null
+        createdNoteRef.current = null
+        lastFinalizeOptsRef.current = null
+        setProcessing(false)
+        navigate(`/nota/${note.id}`, { replace: true })
+        return
+      }
+
       // Se uma tentativa anterior desta MESMA gravacao ja criou a nota (e so falhou depois --
       // na IA, ao salvar o audio), nao criamos outra: vamos direto para o que faltou.
       if (!note) {
         let transcript = opts.transcript ?? ''
         let language = 'pt-BR'
 
-        if (opts.audioBlob) {
-          setStep(0)
-          // Evita transcricao "alucinada" quando a gravacao ficou muda. SO AVISA — jamais
-          // apaga: o audio segue salvo neste aparelho e o usuario decide se transcreve mesmo
-          // assim ou descarta. (Um delete que rodava aqui destruiu uma reuniao de 69 min em
-          // 04/08/2026 por um falso positivo de silencio.)
-          // (O caso de 0 byte e barrado antes de salvar o pendente, no inicio do finalize.)
-          // So GRAVACOES proprias passam pelo filtro de silencio -- e para elas que ele existe
-          // (mic reservado por ligacao, loopback mudo). Um ARQUIVO enviado e ato deliberado, e o
-          // filtro decodifica o audio INTEIRO para PCM na memoria (um m4a de ~50 MB/53 min vira
-          // ~1 GB) antes mesmo de comecar o upload -- risco de travar/estourar memoria a troco
-          // de nada (2026-09-02, upload de m4a grande no app Windows).
-          if (opts.type === 'recording' && !opts.ignoreSilence && (await isSilentAudio(opts.audioBlob))) {
-            if (superseded()) return
-            setSilentDetected(true)
-            setError(
-              'Não captamos quase nenhum áudio nesta gravação. Ela continua salva neste aparelho — você pode transcrever mesmo assim.',
-            )
-            setProcessing(false)
-            return
-          }
-          try {
-            const res = await transcribeAudio(opts.audioBlob, { diarize, onProgress: setStepNote })
-            setStepNote(null)
-            // `?? ''` defensivo: se o provedor devolver um corpo sem `transcript` (ja aconteceu
-            // com a diarizacao devolvendo o formato errado), nunca deixar `transcript` undefined
-            // -- senao o `.trim()` abaixo estoura ("Cannot read properties of undefined").
-            transcript = res.transcript ?? ''
-            language = res.language ?? 'pt-BR'
-            // Transcricao voltou VAZIA (provedor devolveu 200 sem texto): registra as
-            // caracteristicas REAIS do audio pra saber a causa. rms alto + sem texto = provedor
-            // nao achou fala; rms baixo = o mic/loopback nao captou (ex.: cancelamento de eco no
-            // driver do Windows, mic longe do alto-falante, volume baixo). E o dado que faltava.
-            if (!transcript.trim()) {
-              const rms = await audioRms(opts.audioBlob).catch(() => -1)
-              logClientError({
-                severity: 'warning',
-                category: 'system',
-                source: 'client:emptyTranscript',
-                message: `Transcricao vazia -- rms=${rms.toFixed(4)} bytes=${opts.audioBlob.size}`,
-                detail: {
-                  mode,
-                  bytes: opts.audioBlob.size,
-                  type: opts.audioBlob.type || '(vazio)',
-                  durationSeconds: opts.duration ?? 0,
-                  rms,
-                },
-              })
-            }
-          } catch (tErr) {
-            // Diagnostico: registra o TAMANHO e o FORMATO reais do audio que o provedor recusou.
-            // E o que distingue "gravacao vazia/corrompida" de "arquivo em formato estranho" --
-            // sem isto, "could not process file" nao diz nada sobre a causa.
-            logClientError({
-              severity: 'error',
-              category: 'system',
-              source: 'client:transcribeAudio',
-              message: tErr instanceof Error ? tErr.message : String(tErr),
-              detail: {
-                mode,
-                bytes: opts.audioBlob.size,
-                type: opts.audioBlob.type || '(vazio)',
-                durationSeconds: opts.duration ?? 0,
-              },
-            })
-            throw tErr
-          }
-        }
+        // (O caminho de audio sai antes daqui: a nota nasce e a fila assume.)
 
         // A nota nasce AQUI, com o transcript e status 'processing' -- ANTES da IA. Na ordem
         // antiga (resumir, depois criar) qualquer falha da IA descartava a transcricao inteira:
