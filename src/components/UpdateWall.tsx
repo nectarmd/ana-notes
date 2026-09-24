@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { AlertTriangle, Copy, Download } from 'lucide-react'
 import { isElectron } from '../lib/electron'
 import { isOlderVersion, WINDOWS_MIN_BUILD } from '../lib/version'
-import { WINDOWS_INSTALLER_URL } from '../lib/windowsApp'
+import { WINDOWS_APP_DOWNLOAD_URL, WINDOWS_FROM_STORE } from '../lib/windowsApp'
 import { useT } from '../lib/i18n'
 
 const SNOOZE_KEY = 'tailor.updateWallSnooze'
@@ -26,7 +26,13 @@ const PAGINA_INSTALAR = 'ana.nectarmd.com.br/instalar'
  *
  * O botao de baixar usa window.open, que so abre o navegador a partir da 0.20.0 -- justamente
  * quem esta bloqueado aqui pode nao ver nada acontecer. Por isso a tela tambem mostra o endereco
- * para digitar e um botao de copiar.
+ * para digitar e um botao de copiar. O endereco e o da pagina /instalar (e nao o da Loja): ela
+ * leva para a Loja no computador e e facil de digitar.
+ *
+ * Desde 24/09/2026 o destino e a MICROSOFT STORE, nao mais o instalador do GitHub: a Loja assina
+ * o pacote (sem aviso de arquivo suspeito) e passa a atualizar o app sozinha. Em troca, a copia
+ * da Loja e uma instalacao NOVA, separada: quem vier por aqui precisa entrar na conta de novo e
+ * desinstalar o ANA antigo depois -- e o que o texto da tela explica.
  */
 export function UpdateWall() {
   const t = useT()
@@ -75,19 +81,21 @@ export function UpdateWall() {
         </span>
         <h2 className="font-display text-xl font-bold">{t('update.wallTitle')}</h2>
         <p className="text-sm text-content-secondary mt-2 leading-relaxed">
-          {t('update.wallBody').replace('{v}', versao)}
+          {(WINDOWS_FROM_STORE ? t('update.wallBodyStore') : t('update.wallBody')).replace('{v}', versao)}
         </p>
 
         <button
-          onClick={() => window.open(WINDOWS_INSTALLER_URL, '_blank')}
+          onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
           className="btn-primary w-full mt-5 py-2.5"
         >
-          <Download size={18} /> {t('update.wallCta')}
+          <Download size={18} /> {WINDOWS_FROM_STORE ? t('update.wallCtaStore') : t('update.wallCta')}
         </button>
 
         {/* O que trava a instalacao na pratica: o aviso do SmartScreen (o instalador nao e
             assinado) e a duvida de fechar ou nao o app antes. O instalador fecha o ANA sozinho. */}
-        <p className="mt-3 text-xs text-content-muted leading-relaxed">{t('update.wallHint')}</p>
+        <p className="mt-3 text-xs text-content-muted leading-relaxed">
+          {WINDOWS_FROM_STORE ? t('update.wallHintStore') : t('update.wallHint')}
+        </p>
 
         <div className="mt-4 rounded-xl bg-surface-elevated border border-surface-border px-4 py-3 text-left">
           <p className="text-xs text-content-muted">{t('update.wallFallback')}</p>

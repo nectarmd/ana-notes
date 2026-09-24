@@ -43,7 +43,7 @@ import { friendsEnabled, unreadCount } from '../lib/friends'
 import { NavTag } from '../components/NavTag'
 import { logSilentError } from '../lib/auditLog'
 import { APP_NAME, APP_VERSION, isOlderVersion, WINDOWS_REQUIRED_BUILD } from '../lib/version'
-import { WINDOWS_APP_DOWNLOAD_URL } from '../lib/windowsApp'
+import { WINDOWS_APP_DOWNLOAD_URL, WINDOWS_FROM_STORE } from '../lib/windowsApp'
 import { podeBaixarWindows, podeInstalarNoCelular } from '../lib/ondeEstou'
 import { isElectron, type AnaPaths } from '../lib/electron'
 
@@ -539,7 +539,7 @@ export function Settings() {
             {podeBaixarWindows() && (
               <Row
                 icon={<Monitor size={20} />}
-                label={t('settings.downloadWindows')}
+                label={WINDOWS_FROM_STORE ? t('settings.downloadWindowsStore') : t('settings.downloadWindows')}
                 onClick={() => window.open(WINDOWS_APP_DOWNLOAD_URL, '_blank')}
                 right={<ChevronRight size={18} className="text-content-muted" />}
               />
