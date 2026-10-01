@@ -6,6 +6,7 @@
 import { config } from './config'
 import { supabase } from './supabase'
 import { audioContentType } from './mediaKind'
+import { saveFile } from './saveFile'
 
 const DB_NAME = 'tailor-audio'
 const STORE = 'blobs'
@@ -94,20 +95,28 @@ export async function getAudioUrl(ref: string | null): Promise<string | null> {
 export async function downloadAudio(ref: string | null, filename: string): Promise<boolean> {
   const url = await getAudioUrl(ref)
   if (!url) return false
+  let blob: Blob
   try {
-    const blob = await (await fetch(url)).blob()
-    const objUrl = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = objUrl
-    a.download = filename
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(objUrl), 2000)
-    return true
+    blob = await (await fetch(url)).blob()
   } catch {
     // fallback: abre em nova aba
     window.open(url, '_blank')
     return true
   }
+  // A gravacao pode ser m4a (APK Android), mp3, wav... o nome segue o formato real.
+  const ext = AUDIO_EXT[blob.type.split(';')[0]]
+  await saveFile(blob, ext ? filename.replace(/\.[a-z0-9]+$/i, '') + ext : filename)
+  return true
+}
+
+const AUDIO_EXT: Record<string, string> = {
+  'audio/webm': '.webm',
+  'audio/mp4': '.m4a',
+  'audio/x-m4a': '.m4a',
+  'audio/mpeg': '.mp3',
+  'audio/ogg': '.ogg',
+  'audio/wav': '.wav',
+  'audio/x-wav': '.wav',
 }
 
 export async function deleteAudio(ref: string | null): Promise<void> {

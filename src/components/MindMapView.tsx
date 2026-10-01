@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Download, FileCode2, FileDown, ListTree, Maximize2, X } from 'lucide-react'
 import type { Note } from '../lib/types'
 import { useToast } from './Toast'
+import { AppUpdateRequiredError, saveFile } from '../lib/saveFile'
 
 type MindMap = NonNullable<Note['mindmap']>
 
@@ -259,47 +260,44 @@ export function MindMapView({ map, title }: { map: MindMap; title?: string }) {
     return canvas
   }
 
-  async function downloadPng() {
+  /** Entrega o arquivo e avisa se falhou (no APK antigo, pede para atualizar o app). */
+  async function deliver(blob: Blob, ext: string, failMsg: string) {
     try {
-      const canvas = await renderCanvas(2)
-      await new Promise<void>((res) =>
-        canvas.toBlob((blob) => {
-          if (blob) {
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = fileBase() + '.png'
-            a.click()
-            setTimeout(() => URL.revokeObjectURL(url), 1000)
-          }
-          res()
-        }, 'image/png'),
-      )
-    } catch {
-      toast('Não foi possível gerar a imagem.', 'error')
+      await saveFile(blob, `${fileBase()}.${ext}`)
+    } catch (err) {
+      toast(err instanceof AppUpdateRequiredError ? 'Para salvar arquivos, atualize o app ANA no celular.' : failMsg, 'error')
     }
   }
 
+  async function downloadPng() {
+    let blob: Blob | null = null
+    try {
+      const canvas = await renderCanvas(2)
+      blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+    } catch {
+      /* cai no aviso abaixo */
+    }
+    if (!blob) return toast('Não foi possível gerar a imagem.', 'error')
+    await deliver(blob, 'png', 'Não foi possível salvar a imagem.')
+  }
+
   async function downloadPdf() {
+    let blob: Blob
     try {
       const canvas = await renderCanvas(2)
       const jpeg = canvas.toDataURL('image/jpeg', 0.92)
       const { jsPDF } = await import('jspdf')
       const pdf = new jsPDF({ orientation: totalW >= totalHeight ? 'l' : 'p', unit: 'pt', format: [totalW, totalHeight] })
       pdf.addImage(jpeg, 'JPEG', 0, 0, totalW, totalHeight)
-      pdf.save(fileBase() + '.pdf')
+      blob = pdf.output('blob')
     } catch {
-      toast('Não foi possível gerar o PDF.', 'error')
+      return toast('Não foi possível gerar o PDF.', 'error')
     }
+    await deliver(blob, 'pdf', 'Não foi possível salvar o PDF.')
   }
 
   function saveBlob(content: string, mime: string, ext: string) {
-    const url = URL.createObjectURL(new Blob([content], { type: mime }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${fileBase()}.${ext}`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    return deliver(new Blob([content], { type: mime }), ext, 'Não foi possível salvar o arquivo.')
   }
 
   /** SVG vetorial: abre e edita em Figma, Illustrator, Inkscape ou Canva. */

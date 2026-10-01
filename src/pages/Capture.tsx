@@ -30,6 +30,7 @@ import {
   canKeepScreenAwake,
 } from '../lib/useRecorder'
 import { isElectron } from '../lib/electron'
+import { AppUpdateRequiredError, saveFile } from '../lib/saveFile'
 import { SystemAudioHelp } from '../components/SystemAudioHelp'
 import { useToast } from '../components/Toast'
 import { db, config } from '../lib/api'
@@ -697,12 +698,15 @@ const [stepNote] = useState<string | null>(null)
       setError('O áudio desta gravação não está mais neste navegador.')
       return
     }
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${(meta.fallbackTitle || 'gravacao').replace(/[\\/:*?"<>|]/g, '-')}.webm`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 2000)
+    try {
+      await saveFile(blob, `${(meta.fallbackTitle || 'gravacao').replace(/[\\/:*?"<>|]/g, '-')}.webm`)
+    } catch (err) {
+      setError(
+        err instanceof AppUpdateRequiredError
+          ? 'Para salvar o áudio, atualize o app ANA no celular.'
+          : 'Não foi possível salvar o áudio.',
+      )
+    }
   }
 
   /** Repete a ultima tentativa com o MESMO audio (reaproveita a nota se ela ja foi criada). */

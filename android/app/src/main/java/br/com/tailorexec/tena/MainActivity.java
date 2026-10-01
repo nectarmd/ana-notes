@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
         // Precisam ser registrados ANTES do super.onCreate (a bridge e criada la).
         registerPlugin(SharedFilePlugin.class);
         registerPlugin(BgRecorderPlugin.class);
+        registerPlugin(FileSavePlugin.class);
         super.onCreate(savedInstanceState);
         handleShare(getIntent());
     }

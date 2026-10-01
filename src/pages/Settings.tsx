@@ -323,8 +323,8 @@ export function Settings() {
     setExporting(true)
     try {
       const notes = await db.listNotes(profile.id)
-      exportNotesMarkdown(notes, `${profile.first_name} ${profile.last_name}`)
-      toast(t('settings.exported'))
+      const r = await exportNotesMarkdown(notes, `${profile.first_name} ${profile.last_name}`)
+      if (r !== 'cancelled') toast(t('settings.exported'))
     } catch {
       toast('Não foi possível exportar os dados', 'error')
     } finally {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, FileType, Mail, Copy, Check, Users, Share as ShareIcon, AudioLines, ScrollText, Search } from 'lucide-react'
+import { FileText, FileType, Mail, Copy, Check, Users, Share as ShareIcon, AudioLines, ScrollText, Search, Loader2 } from 'lucide-react'
 import { db } from '../lib/api'
 import { useAuth } from '../auth/AuthProvider'
 import type { Note, PersonRef } from '../lib/types'
@@ -12,10 +12,13 @@ import {
   exportWord,
   exportTranscript,
   nativeShare,
+  preloadPdf,
   shareEmail,
   shareWhatsApp,
   slugify,
 } from '../lib/share'
+import { AppUpdateRequiredError } from '../lib/saveFile'
+import { isElectron } from '../lib/electron'
 import { downloadAudio } from '../lib/audioStore'
 import { logSilentError } from '../lib/auditLog'
 import { useToast } from '../components/Toast'
@@ -44,6 +47,7 @@ export function ShareSheet({
   const [term, setTerm] = useState('')
   const [copied, setCopied] = useState(false)
   const [savingShare, setSavingShare] = useState(false)
+  const [busy, setBusy] = useState<string | null>(null)
   // Quem ja recebeu a copia NESTA sessao (o check e feedback local: a copia e do outro
   // usuario e nao da para "des-enviar" -- ele exclui a dele se quiser).
   const [sentTo, setSentTo] = useState<Set<string>>(new Set())
@@ -92,14 +96,50 @@ export function ShareSheet({
     }
   }
 
+  // A biblioteca do PDF vem antes do clique: no celular o menu de compartilhar so abre se o
+  // toque for recente (ver preloadPdf).
+  useEffect(() => {
+    if (open) preloadPdf().catch(() => {})
+  }, [open])
+
+  /** Gera/entrega um arquivo e SEMPRE da retorno: o botao PDF ja ficou mudo (01/10/2026). */
+  async function runFile(key: string, job: () => Promise<unknown>) {
+    if (busy) return
+    setBusy(key)
+    try {
+      const r = await job()
+      if (r === 'saved') toast(t('sh.saved'))
+    } catch (err) {
+      if (err instanceof AppUpdateRequiredError) {
+        toast(t('sh.updateApp'), 'error')
+      } else {
+        logSilentError(`client:ShareSheet.${key}`, err)
+        toast(t('sh.fileError'), 'error')
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const spinner = <Loader2 size={20} className="animate-spin" />
   const channels = [
     { label: 'WhatsApp', icon: <WhatsAppIcon />, onClick: () => shareWhatsApp(note) },
     { label: 'E-mail', icon: <Mail size={20} />, onClick: () => shareEmail(note) },
-    { label: 'PDF', icon: <FileText size={20} />, onClick: () => exportPdf(note) },
-    { label: 'Word', icon: <FileType size={20} />, onClick: () => exportWord(note) },
-    { label: t('sh.transcript'), icon: <ScrollText size={20} />, onClick: () => exportTranscript(note) },
+    { label: 'PDF', icon: busy === 'pdf' ? spinner : <FileText size={20} />, onClick: () => runFile('pdf', () => exportPdf(note)) },
+    { label: 'Word', icon: busy === 'word' ? spinner : <FileType size={20} />, onClick: () => runFile('word', () => exportWord(note)) },
+    {
+      label: t('sh.transcript'),
+      icon: busy === 'transcript' ? spinner : <ScrollText size={20} />,
+      onClick: () => runFile('transcript', () => exportTranscript(note)),
+    },
     ...(note.audio_url
-      ? [{ label: t('sh.audio'), icon: <AudioLines size={20} />, onClick: () => downloadAudio(note.audio_url, `${slugify(note.title)}.webm`) }]
+      ? [
+          {
+            label: t('sh.audio'),
+            icon: busy === 'audio' ? spinner : <AudioLines size={20} />,
+            onClick: () => runFile('audio', () => downloadAudio(note.audio_url, `${slugify(note.title)}.webm`)),
+          },
+        ]
       : []),
     { label: copied ? t('sh.copied') : t('sh.copy'), icon: copied ? <Check size={20} /> : <Copy size={20} />, onClick: onCopy },
   ]
@@ -119,7 +159,8 @@ export function ShareSheet({
         ))}
       </div>
 
-      {typeof navigator !== 'undefined' && 'share' in navigator && (
+      {/* O Electron (app Windows) nao suporta a Web Share API: o botao ficaria mudo. */}
+      {typeof navigator !== 'undefined' && 'share' in navigator && !isElectron() && (
         <button className="btn-outline w-full mb-6" onClick={() => nativeShare(note)}>
           <ShareIcon size={18} />
           {t('sh.moreDevice')}
