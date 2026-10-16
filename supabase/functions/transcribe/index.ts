@@ -63,7 +63,7 @@ class WhisperError extends CodedError {
   }
 }
 
-async function whisperOnce(file: File): Promise<{ text: string; seconds: number }> {
+async function whisperOnce(file: File): Promise<{ text: string; seconds: number; language: string }> {
   const endpoint =
     PROVIDER === 'openai'
       ? 'https://api.openai.com/v1/audio/transcriptions'
@@ -73,7 +73,7 @@ async function whisperOnce(file: File): Promise<{ text: string; seconds: number 
   const form = new FormData()
   form.append('file', file, file.name || 'audio.webm')
   form.append('model', model)
-  form.append('language', 'pt')
+  // Nao fixe idioma aqui: a transcricao deve sair no idioma original do audio.
   // verbose_json traz `duration` (segundos), que e como a transcricao e cobrada.
   form.append('response_format', 'verbose_json')
   const res = await fetch(endpoint, { method: 'POST', headers: { authorization: `Bearer ${key}` }, body: form })
@@ -87,7 +87,7 @@ async function whisperOnce(file: File): Promise<{ text: string; seconds: number 
   const data = await res.json()
   const segments = Array.isArray(data.segments) ? data.segments : []
   const text = segments.length ? paragraphize(segments) : String(data.text ?? '')
-  return { text, seconds: Math.round(Number(data.duration) || 0) }
+  return { text, seconds: Math.round(Number(data.duration) || 0), language: String(data.language ?? 'auto') }
 }
 
 /**
@@ -122,10 +122,10 @@ function paragraphize(pieces: Array<{ text?: string; start?: number; end?: numbe
  *  - 200 OK com texto VAZIO para audio com duracao real: ja aconteceu com um audio de 25 min que,
  *    reenviado, transcreveu 22 mil caracteres. Nao e o audio que esta ruim.
  */
-async function whisper(file: File): Promise<{ text: string; seconds: number }> {
+async function whisper(file: File): Promise<{ text: string; seconds: number; language: string }> {
   const MIN_SECONDS_TO_EXPECT_TEXT = 3
   const MAX_ATTEMPTS = 3
-  let last: { text: string; seconds: number } | null = null
+  let last: { text: string; seconds: number; language: string } | null = null
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const result = await whisperOnce(file)
@@ -170,7 +170,7 @@ async function assemblyStart(file: File, diarize: boolean): Promise<string | nul
     const tr = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: { authorization: ASSEMBLYAI_API_KEY, 'content-type': 'application/json' },
-      body: JSON.stringify({ audio_url: upload_url, speaker_labels: diarize, language_code: 'pt' }),
+      body: JSON.stringify({ audio_url: upload_url, speaker_labels: diarize, language_detection: true }),
     })
     if (!tr.ok) {
       assemblyLastError = `criacao do trabalho ${tr.status}: ${(await tr.text()).slice(0, 300)}`
@@ -199,7 +199,7 @@ async function assemblyFetch(id: string): Promise<Record<string, unknown> | null
 }
 
 /** Texto final: com diarizacao vira "Falante A: ...", uma fala por linha; sem, paragrafos pelas pausas. */
-function assemblyResult(data: Record<string, unknown>): { text: string; seconds: number } {
+function assemblyResult(data: Record<string, unknown>): { text: string; seconds: number; language: string } {
   const utterances = data.utterances as Array<{ speaker: string; text: string }> | undefined
   const words = data.words as Array<{ text: string; start: number; end: number }> | undefined
   const text =
@@ -208,7 +208,7 @@ function assemblyResult(data: Record<string, unknown>): { text: string; seconds:
       : Array.isArray(words) && words.length
         ? paragraphize(words.map((w) => ({ text: w.text, start: w.start / 1000, end: w.end / 1000 })))
         : String(data.text ?? '')
-  return { text, seconds: Math.round(Number(data.audio_duration) || 0) }
+  return { text, seconds: Math.round(Number(data.audio_duration) || 0), language: String(data.language_code ?? 'auto') }
 }
 
 // ------------------------------------------------------------------------------ mesmo audio duas vezes
@@ -218,6 +218,9 @@ function assemblyResult(data: Record<string, unknown>): { text: string; seconds:
 // aqui), por usuario, separando com e sem diarizacao. Guardado por 7 dias (limpeza em 0041).
 const HEX64 = /^[0-9a-f]{64}$/
 const JOB_REUSE_MS = 3 * 60 * 60 * 1000
+// 06/10/2026: antes a transcricao era forçada em portugues. Versionar a chave evita reaproveitar
+// cache antigo em PT quando o correto e transcrever no idioma original do audio.
+const CACHE_VERSION = 'source-language-v1'
 
 async function sha256Hex(data: ArrayBuffer | Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', data)
@@ -319,7 +322,7 @@ Deno.serve(async (req) => {
       if (done.seconds > MAX_AUDIO_SECONDS) {
         return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: done.seconds } })
       }
-      return json({ transcript: done.text, language: 'pt-BR', provider: 'assemblyai' })
+      return json({ transcript: done.text, language: done.language, provider: 'assemblyai' })
     }
 
     // ------------------------------------------------------------------ nova transcricao
@@ -337,7 +340,7 @@ Deno.serve(async (req) => {
     if (userId) {
       const sent = String(inForm.get('sha256') ?? '').toLowerCase()
       const fileHash = HEX64.test(sent) ? sent : await sha256Hex(await file.arrayBuffer())
-      cacheKey = diarize ? await sha256Hex(new TextEncoder().encode(`${fileHash}:diarize`)) : fileHash
+      cacheKey = await sha256Hex(new TextEncoder().encode(`${CACHE_VERSION}:${fileHash}:${diarize ? 'diarize' : 'plain'}`))
       const hit = await cacheGet(userId, cacheKey)
       if (hit?.transcript) {
         await logAuditServer({
@@ -349,7 +352,7 @@ Deno.serve(async (req) => {
           user_id: userId,
           detail: { bytes: file.size, provider: hit.provider },
         })
-        return json({ transcript: hit.transcript, language: 'pt-BR', provider: hit.provider ?? 'cache', cached: true })
+        return json({ transcript: hit.transcript, language: 'auto', provider: hit.provider ?? 'cache', cached: true })
       }
       if (hit?.job_id && Date.now() - Date.parse(hit.created_at) < JOB_REUSE_MS) {
         return json({ jobId: hit.job_id, provider: 'assemblyai', route: 'dedupe' }, 202)
@@ -387,7 +390,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    let result: { text: string; seconds: number }
+    let result: { text: string; seconds: number; language: string }
     try {
       result = await whisper(file)
     } catch (err) {
@@ -437,7 +440,7 @@ Deno.serve(async (req) => {
       await cachePut(userId, cacheKey, { transcript: result.text, provider: PROVIDER, audio_seconds: result.seconds, job_id: null })
     }
 
-    return json({ transcript: result.text, language: 'pt-BR', provider: PROVIDER })
+    return json({ transcript: result.text, language: result.language, provider: PROVIDER })
   } catch (err) {
     if (err instanceof CodedError) {
       return errorResponse(err.code, { source: 'edge:transcribe', userId, technical: err.technical })

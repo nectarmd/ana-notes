@@ -653,7 +653,7 @@ export function NoteDetail() {
         <div className="pb-40">
           {tab === 'summary' && (
             <>
-              {!note.summary?.trim() && canEdit && note.transcript?.trim() ? (
+              {note.status !== 'processing' && !note.summary?.trim() && canEdit && note.transcript?.trim() ? (
                 <GenerateCta
                   title={t('note.summaryMissingTitle')}
                   subtitle={t('note.summaryMissingSub')}
@@ -662,7 +662,7 @@ export function NoteDetail() {
                   t={t}
                 />
               ) : (
-                <SummaryView text={named?.summary} empty={t('note.summaryNA')} />
+                <SummaryView text={named?.summary} empty={t(note.status === 'processing' ? 'note.summaryPending' : 'note.summaryNA')} />
               )}
               {note.action_items.length > 0 && (
                 <div className="mt-6">

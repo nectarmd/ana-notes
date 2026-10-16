@@ -110,6 +110,10 @@ const [stepNote] = useState<string | null>(null)
   // Sem isto a Larissa tentou 16 vezes seguidas em 16/09 contra creditos esgotados.
   const [cooldownLeft, setCooldownLeft] = useState(0)
   useEffect(() => {
+    if (mode === 'video') setDiarize(true)
+  }, [mode])
+
+  useEffect(() => {
     if (!error) {
       setCooldownLeft(0)
       return
@@ -1078,7 +1082,7 @@ const [stepNote] = useState<string | null>(null)
         </div>
       )}
 
-      {(mode === 'record' || mode === 'meeting' || mode === 'upload') && !meetingBlocked && !recActive && (
+      {(mode === 'record' || mode === 'meeting' || mode === 'upload' || mode === 'video') && !meetingBlocked && !recActive && (
         <div className="mb-4">
           <label className="label">{mode === 'upload' ? 'Tema do áudio (opcional)' : 'Tema (opcional)'}</label>
           <div className="flex flex-wrap gap-2 mb-2">
@@ -1122,7 +1126,7 @@ const [stepNote] = useState<string | null>(null)
         </p>
       )}
 
-      {(mode === 'record' || mode === 'meeting' || mode === 'upload') && !meetingBlocked && !recActive && (
+      {(mode === 'record' || mode === 'meeting' || mode === 'upload' || mode === 'video') && !meetingBlocked && !recActive && (
         <button
           type="button"
           onClick={() => setDiarize((v) => !v)}
