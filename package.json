@@ -1,7 +1,7 @@
 {
   "name": "tailor-executive-ai-notes",
   "private": true,
-  "version": "1.0.18",
+  "version": "1.0.20",
   "author": "Tailor Executive",
   "type": "module",
   "description": "Tailor Executive AI Notes - IA de anotacoes e transcricoes de reunioes",
@@ -22,6 +22,7 @@
     "dist:store": "node electron/build-icon.mjs && node electron/build-appx-assets.mjs && node electron/build-store.mjs"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "@capacitor/android": "^8.4.1",
     "@capacitor/cli": "^8.4.1",
     "@capacitor/core": "^8.4.1",

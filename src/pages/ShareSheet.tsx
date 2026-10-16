@@ -48,6 +48,7 @@ export function ShareSheet({
   const [copied, setCopied] = useState(false)
   const [savingShare, setSavingShare] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [audioPct, setAudioPct] = useState<number | null>(null)
   // Quem ja recebeu a copia NESTA sessao (o check e feedback local: a copia e do outro
   // usuario e nao da para "des-enviar" -- ele exclui a dele se quiser).
   const [sentTo, setSentTo] = useState<Set<string>>(new Set())
@@ -135,9 +136,24 @@ export function ShareSheet({
     ...(note.audio_url
       ? [
           {
-            label: t('sh.audio'),
+            // Durante a conversao o rotulo vira o percentual: uma reuniao longa leva alguns segundos.
+            label: busy === 'audio' && audioPct !== null ? `MP3 ${audioPct}%` : t('sh.audio'),
             icon: busy === 'audio' ? spinner : <AudioLines size={20} />,
-            onClick: () => runFile('audio', () => downloadAudio(note.audio_url, `${slugify(note.title)}.webm`)),
+            onClick: () =>
+              runFile('audio', async () => {
+                setAudioPct(0)
+                try {
+                  const r = await downloadAudio(note.audio_url, `${slugify(note.title)}.mp3`, {
+                    mp3: true,
+                    onProgress: setAudioPct,
+                  })
+                  if (!r) throw new Error('audio_url_indisponivel')
+                  if (r.mp3Failed) toast(t('sh.mp3Failed'))
+                  return r.mp3Failed ? null : r.saved
+                } finally {
+                  setAudioPct(null)
+                }
+              }),
           },
         ]
       : []),
@@ -147,9 +163,9 @@ export function ShareSheet({
   return (
     <Sheet open={open} onClose={onClose} title={t('sh.title')}>
       <div className="grid grid-cols-5 gap-2 mb-6">
-        {channels.map((c) => (
+        {channels.map((c, i) => (
           <button
-            key={c.label}
+            key={i}
             onClick={c.onClick}
             className="flex flex-col items-center gap-2 py-3 rounded-2xl bg-surface-elevated border border-surface-border hover:border-accent/40 transition-colors"
           >

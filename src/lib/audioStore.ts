@@ -6,7 +6,8 @@
 import { config } from './config'
 import { supabase } from './supabase'
 import { audioContentType } from './mediaKind'
-import { saveFile } from './saveFile'
+import { saveFile, type SaveResult } from './saveFile'
+import { logSilentError } from './auditLog'
 
 const DB_NAME = 'tailor-audio'
 const STORE = 'blobs'
@@ -91,22 +92,47 @@ export async function getAudioUrl(ref: string | null): Promise<string | null> {
   return data?.signedUrl ?? null
 }
 
-/** Baixa o arquivo de audio para o dispositivo do usuario. */
-export async function downloadAudio(ref: string | null, filename: string): Promise<boolean> {
+export interface DownloadAudioResult {
+  /** Como o arquivo chegou ao usuario ('opened' = caiu no fallback de abrir o link). */
+  saved: SaveResult | 'opened'
+  /** Pediu MP3 mas a conversao falhou: foi entregue o formato original. */
+  mp3Failed: boolean
+}
+
+/**
+ * Baixa o arquivo de audio para o dispositivo do usuario. Com `mp3`, converte antes (ver mp3.ts);
+ * se a conversao falhar (aparelho sem memoria, formato que o navegador nao decodifica), entrega o
+ * original em vez de nao entregar nada.
+ */
+export async function downloadAudio(
+  ref: string | null,
+  filename: string,
+  opts: { mp3?: boolean; onProgress?: (pct: number) => void } = {},
+): Promise<DownloadAudioResult | null> {
   const url = await getAudioUrl(ref)
-  if (!url) return false
+  if (!url) return null
   let blob: Blob
   try {
     blob = await (await fetch(url)).blob()
   } catch {
     // fallback: abre em nova aba
     window.open(url, '_blank')
-    return true
+    return { saved: 'opened', mp3Failed: false }
+  }
+  let mp3Failed = false
+  if (opts.mp3) {
+    try {
+      const { toMp3 } = await import('./mp3')
+      blob = await toMp3(blob, opts.onProgress)
+    } catch (err) {
+      mp3Failed = true
+      logSilentError('client:downloadAudio.mp3', err)
+    }
   }
   // A gravacao pode ser m4a (APK Android), mp3, wav... o nome segue o formato real.
   const ext = AUDIO_EXT[blob.type.split(';')[0]]
-  await saveFile(blob, ext ? filename.replace(/\.[a-z0-9]+$/i, '') + ext : filename)
-  return true
+  const saved = await saveFile(blob, ext ? filename.replace(/\.[a-z0-9]+$/i, '') + ext : filename)
+  return { saved, mp3Failed }
 }
 
 const AUDIO_EXT: Record<string, string> = {
