@@ -36,10 +36,19 @@ export function AudioPlayer({ audioRef, durationHint = 0 }: { audioRef: string; 
    * O MediaRecorder grava WebM sem a duracao no cabecalho: `audio.duration` vem Infinity.
    * Isso quebrava o tempo total, o max do slider e o seek. Truque padrao: pular para um
    * tempo absurdo, deixar o browser varrer o arquivo, ler a duracao real e voltar ao inicio.
+   *
+   * So como ULTIMO recurso (nota sem duration_seconds). Ate 27/10/2026 a varredura rodava ao
+   * abrir qualquer nota e baixava a gravacao inteira -- no Safari, dezenas de vezes -- sem
+   * ninguem apertar play: ~600 MB/dia de trafego, acima da cota do plano Free da Supabase.
+   * Agora o player usa a duracao salva na nota e so baixa o audio quando a pessoa da play.
    */
   function resolveDuration(a: HTMLAudioElement) {
     if (Number.isFinite(a.duration) && a.duration > 0) {
       setDuration(a.duration)
+      return
+    }
+    if (durationHint > 0) {
+      setDuration(durationHint)
       return
     }
     const onTimeUpdate = () => {
@@ -110,7 +119,8 @@ export function AudioPlayer({ audioRef, durationHint = 0 }: { audioRef: string; 
       <audio
         ref={el}
         src={url}
-        preload="metadata"
+        // "none": abrir a nota nao baixa nada; o audio so vem no play (ver resolveDuration).
+        preload="none"
         onLoadedMetadata={(e) => resolveDuration(e.currentTarget)}
         onDurationChange={(e) => {
           const d = e.currentTarget.duration

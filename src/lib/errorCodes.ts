@@ -55,6 +55,11 @@ const CODES: Record<string, CodeInfo> = {
   TRANSCRIBE_FILE_MISSING: { title: 'Transcrição sem arquivo', action: 'Indica bug no envio. Veja a origem nas ocorrências.', owner: 'admin' },
   TRANSCRIBE_TOO_LARGE: { title: 'Arquivo acima de 60 MB', action: null, owner: 'user' },
   TRANSCRIBE_TOO_LONG: { title: 'Áudio acima de 2 horas', action: null, owner: 'user' },
+  TRANSCRIBE_NO_SPEECH: {
+    title: 'Gravação sem fala',
+    action: 'O áudio chegou, mas sem voz: microfone errado, mudo ou longe. Se repetir com a mesma pessoa, confira o dispositivo dela.',
+    owner: 'user',
+  },
   TRANSCRIBE_EMPTY_FILE: {
     title: 'Gravação sem áudio (arquivo vazio)',
     action: 'Normalmente o microfone não entregou som. Se repetir com a mesma pessoa, confira o dispositivo dela.',

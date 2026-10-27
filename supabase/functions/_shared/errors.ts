@@ -154,6 +154,11 @@ export const ERRORS: Record<string, ErrorDef> = {
     user: 'Esta gravação não tem áudio (arquivo vazio), então não há o que transcrever.',
     admin: 'Provedor recusou: arquivo vazio.',
   },
+  TRANSCRIBE_NO_SPEECH: {
+    status: 422, severity: 'warning', category: 'user',
+    user: 'Não encontramos fala nesta gravação. Confira se o microfone certo estava selecionado e grave de novo.',
+    admin: 'AssemblyAI: gravacao sem fala (a deteccao de idioma nao achou voz).',
+  },
   TRANSCRIBE_INVALID_MEDIA: {
     status: 422, severity: 'warning', category: 'user',
     user: 'Não conseguimos ler este áudio. Se enviou um arquivo, tente outro formato (MP3, M4A, WAV ou WEBM).',

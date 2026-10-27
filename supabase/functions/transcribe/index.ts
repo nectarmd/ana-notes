@@ -29,6 +29,11 @@ const ASSEMBLYAI_API_KEY = Deno.env.get('ASSEMBLYAI_API_KEY')
 // Limites no SERVIDOR: o cliente ja valida, mas a edge function e chamavel direto.
 const MAX_FILE_MB = 60
 const MAX_AUDIO_SECONDS = 2 * 60 * 60 // 2 horas
+// O gravador para sozinho em 2h, mas o arquivo final sai com 7201s (o ultimo pedaco fecha um
+// instante depois). Ate 27/10/2026 isso estourava o limite DEPOIS de pagar a transcricao e o
+// usuario via "passa do limite de 2 horas" na reuniao mais longa (6 vezes em 3 semanas). A folga
+// cobre esse arredondamento; o limite de verdade continua sendo o do gravador.
+const MAX_AUDIO_SECONDS_TOLERANCE = 5 * 60
 
 // Acima disto o Whisper (Groq/OpenAI) recusa com 413 "Request Entity Too Large": o limite por
 // arquivo e 25 MB nos dois. Um .m4a de reuniao de ~50 min ja nasce com 50 MB (casos de 02/09 e
@@ -285,6 +290,17 @@ Deno.serve(async (req) => {
         } catch {
           /* ignora */
         }
+        // Sem fala nenhuma: desde a v1.0.19 o AssemblyAI detecta o idioma, e numa gravacao muda ele
+        // recusa com este texto. Antes o usuario lia "tente outro arquivo ou formato" (caso da
+        // Mariana, 06-07/10/2026, quatro tentativas) -- o problema era o microfone, nao o formato.
+        if (/no spoken audio/i.test(String(data.error ?? ''))) {
+          return errorResponse('TRANSCRIBE_NO_SPEECH', {
+            source: 'edge:transcribe',
+            userId,
+            technical: `AssemblyAI: ${String(data.error ?? '').slice(0, 400)}`,
+            detail: { jobId },
+          })
+        }
         return errorResponse('TRANSCRIBE_JOB_FAILED', {
           source: 'edge:transcribe',
           userId,
@@ -319,7 +335,7 @@ Deno.serve(async (req) => {
           .eq('user_id', userId)
           .eq('file_sha256', prior.file_sha256)
       }
-      if (done.seconds > MAX_AUDIO_SECONDS) {
+      if (done.seconds > MAX_AUDIO_SECONDS + MAX_AUDIO_SECONDS_TOLERANCE) {
         return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: done.seconds } })
       }
       return json({ transcript: done.text, language: done.language, provider: 'assemblyai' })
@@ -431,7 +447,7 @@ Deno.serve(async (req) => {
       cost_usd: result.seconds * (PRICE_PER_SEC[PROVIDER] ?? 0),
     })
 
-    if (result.seconds > MAX_AUDIO_SECONDS) {
+    if (result.seconds > MAX_AUDIO_SECONDS + MAX_AUDIO_SECONDS_TOLERANCE) {
       return errorResponse('TRANSCRIBE_TOO_LONG', { source: 'edge:transcribe', userId, detail: { seconds: result.seconds } })
     }
 
