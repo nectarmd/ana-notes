@@ -76,6 +76,20 @@ export function estaNaFila(noteId: string): boolean {
   return atual?.noteId === noteId || fila.some((j) => j.noteId === noteId)
 }
 
+// Tentativas automaticas por nota, guardadas TAMBEM em memoria: o contador do banco
+// (processing_attempts) so sobe se a gravacao do erro der certo. Com o banco fora do ar, o
+// contador ficava parado e a nota era retentada a cada 60 s para sempre (auditoria 27/10/2026).
+const tentativas = new Map<string, number>()
+// Timer da proxima tentativa automatica: um "Tentar de novo" manual cancela o antigo, senao as
+// duas cadeias de retentativa corriam juntas e pagavam em dobro.
+const proximaTentativa = new Map<string, ReturnType<typeof setTimeout>>()
+
+function cancelarRetentativa(noteId: string): void {
+  const t = proximaTentativa.get(noteId)
+  if (t) clearTimeout(t)
+  proximaTentativa.delete(noteId)
+}
+
 export function enfileirarNota(job: NoteJobInput): void {
   if (estaNaFila(job.noteId)) return
   fila.push(job)
@@ -208,6 +222,7 @@ async function processar(job: NoteJobInput): Promise<void> {
     }
 
     // Concluida: a rede de seguranca no aparelho nao e mais necessaria.
+    tentativas.delete(job.noteId)
     await deletePendingRecording(job.pendingKey)
     avisarNota(note.id)
   } catch (err) {
@@ -216,15 +231,23 @@ async function processar(job: NoteJobInput): Promise<void> {
     // (Groq recusando por limite, creditos no fim, rede oscilando). Duas tentativas espacadas
     // resolvem a maioria sem a pessoa precisar fazer nada -- e, se o app for fechado antes,
     // retomarPendentes() recomeca na proxima abertura.
-    const jaTentou = (note?.processing_attempts ?? 0) + 1
+    const jaTentou = Math.max(note?.processing_attempts ?? 0, tentativas.get(job.noteId) ?? 0) + 1
+    tentativas.set(job.noteId, jaTentou)
     if (jaTentou < 3) {
       const espera = jaTentou === 1 ? 60_000 : 5 * 60_000
-      setTimeout(() => enfileirarNota(job), espera)
+      cancelarRetentativa(job.noteId)
+      proximaTentativa.set(
+        job.noteId,
+        setTimeout(() => {
+          proximaTentativa.delete(job.noteId)
+          enfileirarNota(job)
+        }, espera),
+      )
     }
     try {
       await db.updateNote(job.noteId, {
         processing_error: mensagemDeFalha(err),
-        processing_attempts: (note?.processing_attempts ?? 0) + 1,
+        processing_attempts: jaTentou,
       })
       avisarNota(job.noteId)
     } catch (err2) {
@@ -251,6 +274,8 @@ export async function retomarNota(noteId: string, userId: string): Promise<boole
   if (estaNaFila(noteId)) return true
   const note = await db.getNote(noteId)
   if (!note) return false
+  cancelarRetentativa(noteId)
+  tentativas.delete(noteId)
   await db.updateNote(noteId, { processing_error: null, processing_attempts: 0, processing_stage: 'transcribing', status: 'processing' })
   avisarNota(noteId)
   enfileirarNota({
@@ -303,6 +328,11 @@ export async function retomarPendentes(userId: string): Promise<void> {
     try {
       const note = await db.getNote(meta.noteId)
       if (!note || note.status === 'ready') continue
+      // Ja gastou as tentativas automaticas: agora so pelo "Tentar de novo" da nota. Sem isto,
+      // cada reabertura do app (ou ate editar o perfil) mandava processar e pagar de novo.
+      if ((note.processing_attempts ?? 0) >= 3) continue
+      // Ja tem retentativa agendada nesta sessao: ela cuida.
+      if (proximaTentativa.has(note.id)) continue
       if (!note.processing_error && recemMexida(note)) {
         faltouAlguma = true
         continue

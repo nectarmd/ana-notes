@@ -7,6 +7,7 @@ import { useToast } from '../components/Toast'
 import type { Note } from '../lib/types'
 import { logSilentError } from '../lib/auditLog'
 import { withSpeakerNames } from '../lib/speakers'
+import { runOnce } from '../lib/inFlight'
 
 export function AskNotesSheet({
   open,
@@ -26,22 +27,26 @@ export function AskNotesSheet({
 
   async function ask(question?: string) {
     const query = (question ?? q).trim()
-    if (!query) return
-    setQ(query)
-    setLoading(true)
-    setAnswer('')
-    try {
-      const a = await askAllNotes(
-        query,
-        notes.map((n) => ({ title: n.title, created_at: n.created_at, summary: withSpeakerNames(n).summary })),
-      )
-      setAnswer(a)
-    } catch (err) {
-      logSilentError('client:AskNotesSheet.ask', err)
-      toast(t('common.error'), 'error')
-    } finally {
-      setLoading(false)
-    }
+    // O Enter chama aqui direto: segurar a tecla reenviava a pergunta mais cara do app (os
+    // resumos de TODAS as notas) a cada repeticao do teclado.
+    if (!query || loading) return
+    await runOnce('askAllNotes', async () => {
+      setQ(query)
+      setLoading(true)
+      setAnswer('')
+      try {
+        const a = await askAllNotes(
+          query,
+          notes.map((n) => ({ title: n.title, created_at: n.created_at, summary: withSpeakerNames(n).summary })),
+        )
+        setAnswer(a)
+      } catch (err) {
+        logSilentError('client:AskNotesSheet.ask', err)
+        toast(t('common.error'), 'error')
+      } finally {
+        setLoading(false)
+      }
+    })
   }
 
   return (

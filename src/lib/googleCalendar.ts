@@ -5,6 +5,7 @@
 
 import { config } from './config'
 import { supabase } from './supabase'
+import { shareInFlight } from './inFlight'
 
 const SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
 const STORE = 'tailor.gcal'
@@ -86,7 +87,9 @@ async function refreshAccessToken(): Promise<string | null> {
  * o usuario nunca conectou, ou revogou o acesso direto no Google.
  */
 async function getValidToken(): Promise<string | null> {
-  return storedToken() ?? (await refreshAccessToken())
+  // Card da Home, tela da Agenda e lembretes pedem token ao mesmo tempo: uma renovacao so no
+  // servidor, as outras esperam a mesma resposta.
+  return storedToken() ?? (await shareInFlight('gcal-refresh', refreshAccessToken))
 }
 
 /* ---------------------------------------------------------------------------

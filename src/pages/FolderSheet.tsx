@@ -63,7 +63,8 @@ export function FolderSheet({
   }, [open])
 
   async function create() {
-    if (!name.trim()) return
+    // O Enter chama aqui direto: sem o busy, dois Enters criavam duas pastas iguais.
+    if (!name.trim() || busy) return
     if (atLimit) {
       toast(t('folder.limit'), 'info')
       return

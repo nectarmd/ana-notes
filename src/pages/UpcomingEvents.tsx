@@ -231,7 +231,9 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
         <span aria-hidden className="h-px flex-1 bg-surface-border" />
         {!needsAuth && (
           <button
-            onClick={() => refresh()}
+            // Botao manual: um clique por vez (navegar de mes continua livre, ver reqSeq).
+            onClick={() => !loading && refresh()}
+            disabled={loading}
             className="grid place-items-center h-8 w-8 rounded-lg text-content-muted hover:bg-surface-elevated hover:text-content-primary shrink-0"
             aria-label={t('events.update')}
             title={t('events.update')}
@@ -344,7 +346,9 @@ export function UpcomingEvents({ mode = 'card' }: { mode?: 'card' | 'page' }) {
         <Sheet open={eventsOpen} onClose={() => setEventsOpen(false)} title={t('events.mine')}>
           <div className="flex items-center justify-between mb-3">
             <button
-              onClick={() => refresh()}
+              // Botao manual: um clique por vez (navegar de mes continua livre, ver reqSeq).
+            onClick={() => !loading && refresh()}
+            disabled={loading}
               className="flex items-center gap-1.5 text-sm text-content-secondary hover:text-content-primary"
             >
               {loading ? <Spinner size={14} /> : <RefreshCw size={14} />} {t('events.update')}

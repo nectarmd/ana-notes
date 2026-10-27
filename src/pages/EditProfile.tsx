@@ -45,7 +45,8 @@ export function EditProfile() {
 
   async function onPhoto(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file || !profile) return
+    // Cada envio vira um arquivo novo no armazenamento: um de cada vez.
+    if (!file || !profile || uploading) return
     setUploading(true)
     try {
       const url = await uploadAvatar(profile.id, file)

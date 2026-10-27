@@ -157,7 +157,7 @@ export function Support() {
   useEffect(load, [profile])
 
   async function submit() {
-    if (!profile || !message.trim()) return
+    if (!profile || !message.trim() || sending) return
     setSending(true)
     try {
       await db.createTicket({

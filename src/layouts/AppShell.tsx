@@ -385,10 +385,13 @@ export function AppShell() {
   // Gravacao que ficou pela metade (app fechado ou recarregado no meio do processamento): volta
   // para a fila sozinha. Fica aqui, e nao na tela de gravacao, porque quem reabre o app cai na
   // Home -- se dependesse de abrir /capturar, a nota ficaria "processando" para sempre.
+  // Depende so do id: o objeto profile e trocado a cada edicao do perfil (foto, retencao...), e
+  // isso refazia a retomada inteira a cada mexida.
+  const profileId = profile?.id
   useEffect(() => {
-    if (!profile) return
-    void retomarPendentes(profile.id)
-  }, [profile])
+    if (!profileId) return
+    void retomarPendentes(profileId)
+  }, [profileId])
 
   // Share target (APK Android): audio/video compartilhado de outro app cai aqui.
   useEffect(() => {

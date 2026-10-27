@@ -37,15 +37,22 @@ function texts(title: string, mins: number): { t: string; b: string } {
 export function startCalendarReminders(): () => void {
   let stopped = false
   let lastFailureLogged = false // evita logar a mesma falha recorrente a cada 3min
+  // Lembrete ligado mas Google desconectado (ou acesso revogado): cada ciclo ia ao servidor
+  // tentar renovar o token e voltava sem nada, a cada 3 min, para sempre. Agora espera 30 min.
+  let pauseUntil = 0
 
   async function tick() {
     if (stopped) return
     try {
       if (!getNotifPrefs().calendar) return
+      if (Date.now() < pauseUntil) return
       // listUpcomingEvents ja tenta renovar o token sozinho (refresh_token no servidor); se
       // mesmo assim precisar de reconexao, needsAuth vem true e so pulamos este ciclo.
       const { needsAuth, events } = await listUpcomingEvents(10)
-      if (needsAuth) return
+      if (needsAuth) {
+        pauseUntil = Date.now() + 30 * 60_000
+        return
+      }
       lastFailureLogged = false
       const now = Date.now()
       const seen = getSeen()

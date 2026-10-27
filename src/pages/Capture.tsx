@@ -794,7 +794,22 @@ const [stepNote] = useState<string | null>(null)
     setPendingRecordings((list) => list.filter((p) => p.key !== key))
   }
 
+  /** Clique duplo no "parar" (ou o clique junto com a parada automatica das 2h) fechava a
+   *  gravacao duas vezes: duas notas, uma delas presa em "processando", e o resumo pago em
+   *  dobro. A trava vale ate a nota ser criada; depois o botao nem existe mais. */
+  const stoppingRef = useRef(false)
+
   async function onStopRecording() {
+    if (stoppingRef.current) return
+    stoppingRef.current = true
+    try {
+      await stopAndFinalize()
+    } finally {
+      stoppingRef.current = false
+    }
+  }
+
+  async function stopAndFinalize() {
     const today = new Date().toLocaleDateString('pt-BR')
 
     if (useNative) {

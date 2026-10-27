@@ -75,7 +75,7 @@ export function SpeakersPanel({
   }
 
   async function save(name: string) {
-    if (!editing) return
+    if (!editing || saving) return
     setSaving(true)
     try {
       const updated = await db.updateNote(note.id, { speakers: setManualName(note.speakers, editing, name) })

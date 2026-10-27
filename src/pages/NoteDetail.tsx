@@ -53,6 +53,7 @@ import { AudioPlayer } from '../components/AudioPlayer'
 import { deleteAudio } from '../lib/audioStore'
 import type { ChatMessage, Note } from '../lib/types'
 import { uid } from '../lib/db'
+import { isRunning, runOnce } from '../lib/inFlight'
 import { templateLabel } from '../lib/templates'
 import { ShareSheet } from './ShareSheet'
 import { FeedbackSheet } from './FeedbackSheet'
@@ -212,65 +213,80 @@ export function NoteDetail() {
    */
   async function runSummary() {
     if (!note) return
-    setBusy('summary')
-    try {
-      const meta = { template: note.template, context: note.context }
-      // Sem itens ainda: resumo e itens numa chamada so. Com itens (a pessoa ja mexeu neles), so o resumo.
-      let summary: string
-      let action_items = note.action_items
-      if (note.action_items.length) {
-        summary = await generateSummary(withSpeakerNames(note).transcript, meta)
-      } else {
-        const r = await generateSummaryAndItems(withSpeakerNames(note).transcript, meta)
-        summary = r.summary
-        action_items = r.actionItems
+    // Um pedido por nota e por tipo, mesmo saindo e voltando da tela (ver inFlight.ts).
+    const key = `summary:${note.id}`
+    if (isRunning(key)) return toast(t('common.alreadyRunning'))
+    await runOnce(key, async () => {
+      setBusy('summary')
+      try {
+        const meta = { template: note.template, context: note.context }
+        // Sem itens ainda: resumo e itens numa chamada so. Com itens (a pessoa ja mexeu neles), so o resumo.
+        let summary: string
+        let action_items = note.action_items
+        if (note.action_items.length) {
+          summary = await generateSummary(withSpeakerNames(note).transcript, meta)
+        } else {
+          const r = await generateSummaryAndItems(withSpeakerNames(note).transcript, meta)
+          summary = r.summary
+          action_items = r.actionItems
+        }
+        const updated = await db.updateNote(note.id, { summary, action_items, status: 'ready' })
+        if (profile) await db.logUsage(profile.id, 'ai_summary', note.id)
+        setNote(updated)
+        setTab('summary')
+      } catch (err) {
+        toast(aiError(err, t('common.error')), 'error')
+      } finally {
+        setBusy(null)
       }
-      const updated = await db.updateNote(note.id, { summary, action_items, status: 'ready' })
-      if (profile) await db.logUsage(profile.id, 'ai_summary', note.id)
-      setNote(updated)
-      setTab('summary')
-    } catch (err) {
-      toast(aiError(err, t('common.error')), 'error')
-    } finally {
-      setBusy(null)
-    }
+    })
   }
 
   async function runDetailed() {
     if (!note) return
-    setBusy('detailed')
-    try {
-      const detailed = await generateDetailed(withSpeakerNames(note).transcript, { template: note.template, context: note.context })
-      const updated = await db.updateNote(note.id, { detailed_summary: detailed })
-      if (profile) await db.logUsage(profile.id, 'ai_detailed', note.id)
-      setNote(updated)
-      setTab('detailed')
-    } catch (err) {
-      toast(aiError(err, t('common.error')), 'error')
-    } finally {
-      setBusy(null)
-    }
+    // Um pedido por nota e por tipo, mesmo saindo e voltando da tela (ver inFlight.ts).
+    const key = `detailed:${note.id}`
+    if (isRunning(key)) return toast(t('common.alreadyRunning'))
+    await runOnce(key, async () => {
+      setBusy('detailed')
+      try {
+        const detailed = await generateDetailed(withSpeakerNames(note).transcript, { template: note.template, context: note.context })
+        const updated = await db.updateNote(note.id, { detailed_summary: detailed })
+        if (profile) await db.logUsage(profile.id, 'ai_detailed', note.id)
+        setNote(updated)
+        setTab('detailed')
+      } catch (err) {
+        toast(aiError(err, t('common.error')), 'error')
+      } finally {
+        setBusy(null)
+      }
+    })
   }
 
   async function runAnalysis() {
     if (!note) return
-    setBusy('analysis')
-    try {
-      const analysis = await generateAnalysis(withSpeakerNames(note).transcript, { template: note.template, context: note.context })
-      // Nunca gravar uma analise vazia por cima da nota: melhor errar e deixar o usuario repetir.
-      if (!hasAnalysis(analysis)) {
-        toast(t('note.analysisEmpty'), 'error')
-        return
+    // Um pedido por nota e por tipo, mesmo saindo e voltando da tela (ver inFlight.ts).
+    const key = `analysis:${note.id}`
+    if (isRunning(key)) return toast(t('common.alreadyRunning'))
+    await runOnce(key, async () => {
+      setBusy('analysis')
+      try {
+        const analysis = await generateAnalysis(withSpeakerNames(note).transcript, { template: note.template, context: note.context })
+        // Nunca gravar uma analise vazia por cima da nota: melhor errar e deixar o usuario repetir.
+        if (!hasAnalysis(analysis)) {
+          toast(t('note.analysisEmpty'), 'error')
+          return
+        }
+        const updated = await db.updateNote(note.id, { analysis })
+        if (profile) await db.logUsage(profile.id, 'ai_analysis', note.id)
+        setNote(updated)
+        setTab('analysis')
+      } catch (err) {
+        toast(aiError(err, t('common.error')), 'error')
+      } finally {
+        setBusy(null)
       }
-      const updated = await db.updateNote(note.id, { analysis })
-      if (profile) await db.logUsage(profile.id, 'ai_analysis', note.id)
-      setNote(updated)
-      setTab('analysis')
-    } catch (err) {
-      toast(aiError(err, t('common.error')), 'error')
-    } finally {
-      setBusy(null)
-    }
+    })
   }
 
   /** Abre o mapa mental em pagina propria (que gera na primeira vez e salva). */
@@ -315,7 +331,9 @@ export function NoteDetail() {
   }
 
   async function sendChat() {
-    if (!note || !chatInput.trim()) return
+    // O Enter tambem chama aqui: sem esta linha, uma pergunta nova durante a resposta anterior
+    // disparava outra chamada e uma resposta sobrescrevia a outra no historico.
+    if (!note || !chatInput.trim() || chatBusy) return
     const question = chatInput.trim()
     setChatInput('')
     const userMsg: ChatMessage = { id: uid('c_'), role: 'user', content: question, created_at: new Date().toISOString() }

@@ -11,6 +11,7 @@ import { useToast } from '../components/Toast'
 import { useT } from '../lib/i18n'
 import { logClientError, logSilentError } from '../lib/auditLog'
 import { withSpeakerNames } from '../lib/speakers'
+import { shareInFlight } from '../lib/inFlight'
 
 /** Pagina do mapa mental de uma nota. Gera na primeira vez e salva; nas proximas abre o salvo. */
 export function MindMapPage() {
@@ -39,24 +40,32 @@ export function MindMapPage() {
     if (generating) return
     setGenerating(true)
     try {
-      const mindmap = await generateMindMap(withSpeakerNames(current).transcript, {
-        template: current.template,
-        context: current.context,
-      })
-      // Um mapa sem ramos so serviria para travar a nota num mapa vazio: nao salva, deixa repetir.
-      if (!hasMindMap(mindmap)) {
-        logClientError({
-          severity: 'warning',
-          category: 'system',
-          source: 'client:MindMap.generate',
-          message: 'IA devolveu mapa mental vazio (sem branches)',
-          note_id: current.id,
+      // Sair e voltar para esta tela durante a geracao reaproveita o MESMO pedido (antes, a volta
+      // disparava um segundo mapa pago). Ver inFlight.ts.
+      const updated = await shareInFlight(`mindmap:${current.id}`, async () => {
+        const mindmap = await generateMindMap(withSpeakerNames(current).transcript, {
+          template: current.template,
+          context: current.context,
         })
+        // Um mapa sem ramos so serviria para travar a nota num mapa vazio: nao salva, deixa repetir.
+        if (!hasMindMap(mindmap)) {
+          logClientError({
+            severity: 'warning',
+            category: 'system',
+            source: 'client:MindMap.generate',
+            message: 'IA devolveu mapa mental vazio (sem branches)',
+            note_id: current.id,
+          })
+          return null
+        }
+        const saved = await db.updateNote(current.id, { mindmap })
+        if (profile) await db.logUsage(profile.id, 'ai_analysis', current.id)
+        return saved
+      })
+      if (!updated) {
         toast(t('common.error'), 'error')
         return
       }
-      const updated = await db.updateNote(current.id, { mindmap })
-      if (profile) await db.logUsage(profile.id, 'ai_analysis', current.id)
       setNote(updated)
     } catch (err) {
       logSilentError('client:MindMap.generate', err)

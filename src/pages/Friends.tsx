@@ -31,6 +31,7 @@ import {
 import { FRIEND_MSG_MAX, type FriendEdge, type FriendMessage, type PersonRef } from '../lib/types'
 import { Avatar, ConfirmDialog, EmptyState, Sheet, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
+import { allowEvery } from '../lib/inFlight'
 import { useT } from '../lib/i18n'
 import { logSilentError } from '../lib/auditLog'
 import { INBOX_CHANGED } from '../lib/inbox'
@@ -518,7 +519,12 @@ export function FriendsPage() {
                             {e.unread > 0 ? t('friends.chatUnread').replace('{n}', String(e.unread)) : t('friends.chat')}
                           </button>
                           <button
-                            onClick={() => run(`poke-${e.person.id}`, () => poke(me, e.person.id), t('friends.pokeSent'))}
+                            // Cada cutucada vira uma mensagem gravada: no maximo uma a cada 30 s por amigo.
+                            onClick={() =>
+                              allowEvery(`poke:${e.person.id}`, 30_000)
+                                ? run(`poke-${e.person.id}`, () => poke(me, e.person.id), t('friends.pokeSent'))
+                                : toast(t('friends.pokeSent'))
+                            }
                             disabled={busy === `poke-${e.person.id}`}
                             title={t('friends.poke')}
                             className="btn-ghost h-9 px-3 text-sm text-accent"
